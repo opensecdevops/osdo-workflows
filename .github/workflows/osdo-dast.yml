@@ -1,0 +1,137 @@
+name: OSDO DAST
+
+on:
+    workflow_call:
+        inputs:
+            # Target Configuration
+            target-url:
+                description: "Target URL to scan"
+                required: true
+                type: string
+            scan-type:
+                description: "Scan type (baseline, full, api)"
+                required: false
+                default: "baseline"
+                type: string
+            api-spec:
+                description: "Path to OpenAPI/Swagger spec for API scanning"
+                required: false
+                default: ""
+                type: string
+
+            # Security Checks
+            check-ssl-tls:
+                description: "Check SSL/TLS configuration"
+                required: false
+                default: true
+                type: boolean
+            check-security-headers:
+                description: "Check security headers"
+                required: false
+                default: true
+                type: boolean
+            check-csp:
+                description: "Check Content Security Policy"
+                required: false
+                default: true
+                type: boolean
+
+            # Thresholds
+            fail-on-high:
+                description: "Fail on high severity findings"
+                required: false
+                default: true
+                type: boolean
+
+        outputs:
+            vulnerabilities-found:
+                description: "Total vulnerabilities found"
+                value: ${{ jobs.dast-scan.outputs.vulnerabilities }}
+            high-count:
+                description: "High severity count"
+                value: ${{ jobs.dast-scan.outputs.high }}
+            risk-score:
+                description: "Application risk score"
+                value: ${{ jobs.dast-scan.outputs.risk-score }}
+            ssl-grade:
+                description: "SSL/TLS grade"
+                value: ${{ jobs.dast-scan.outputs.ssl-grade }}
+
+permissions:
+    contents: read
+    security-events: write
+
+jobs:
+    dast-scan:
+        name: "DAST Security Scan"
+        runs-on: ubuntu-latest
+        outputs:
+            vulnerabilities: ${{ steps.scan.outputs.vulnerabilities-found }}
+            high: ${{ steps.scan.outputs.high-count }}
+            risk-score: ${{ steps.calculate.outputs.risk-score }}
+            ssl-grade: ${{ steps.scan.outputs.ssl-grade }}
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Wait for Application
+              run: |
+                  echo "Waiting for application at ${{ inputs.target-url }} to be ready..."
+                  timeout 300 bash -c 'until curl -sf ${{ inputs.target-url }} > /dev/null; do sleep 5; done'
+
+            - name: Run DAST Scan
+              id: scan
+              uses: opensecdevops/osdo-actions/actions/osdo-dast-scan@osdo-dast-scan/v1.0.0
+              with:
+                  target-url: ${{ inputs.target-url }}
+                  scan-type: ${{ inputs.scan-type }}
+                  api-spec: ${{ inputs.api-spec }}
+                  check-ssl: ${{ inputs.check-ssl-tls }}
+                  check-headers: ${{ inputs.check-security-headers }}
+                  fail-on-high: ${{ inputs.fail-on-high }}
+                  results-dir: .osdo/results
+
+            - name: Upload DAST Results
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: dast-scan-results
+                  path: .osdo/results/dast/
+                  retention-days: 30
+
+            - name: Calculate Risk Score
+              id: calculate
+              run: |
+                  vulnerabilities=${{ steps.scan.outputs.vulnerabilities-found || 0 }}
+                  high=${{ steps.scan.outputs.high-count || 0 }}
+                  headers_score=${{ steps.scan.outputs.headers-score || 100 }}
+
+                  # Calculate risk score (lower is better)
+                  risk=$((high * 10 + vulnerabilities * 5))
+                  risk=$((risk > 100 ? 100 : risk))
+
+                  echo "risk-score=$risk" >> $GITHUB_OUTPUT
+
+            - name: Generate Summary
+              run: |
+                  cat >> $GITHUB_STEP_SUMMARY <<EOF
+                  # 🔍 Dynamic Application Security Testing Report
+
+                  ## Target
+                  - **URL:** ${{ inputs.target-url }}
+                  - **Scan Type:** ${{ inputs.scan-type }}
+
+                  ## Findings
+                  - **Total Vulnerabilities:** ${{ steps.scan.outputs.vulnerabilities-found || 0 }}
+                  - **High Severity:** ${{ steps.scan.outputs.high-count || 0 }}
+                  - **Risk Score:** ${{ steps.calculate.outputs.risk-score }}/100
+
+                  ## Security Analysis
+                  - **SSL/TLS Grade:** ${{ steps.scan.outputs.ssl-grade || 'N/A' }}
+                  - **Security Headers Score:** ${{ steps.scan.outputs.headers-score || 'N/A' }}/100
+
+                  ## Recommendations
+                  $(if [ "${{ steps.scan.outputs.high-count }}" -gt "0" ]; then echo "⚠️ **Fix high severity vulnerabilities**"; fi)
+                  $(if [ "${{ steps.calculate.outputs.risk-score }}" -gt "50" ]; then echo "⚠️ **Application risk score is high**"; fi)
+                  $(if [ "${{ steps.scan.outputs.ssl-grade }}" != "A" ] && [ -n "${{ steps.scan.outputs.ssl-grade }}" ]; then echo "ℹ️ Improve SSL/TLS configuration"; fi)
+                  EOF

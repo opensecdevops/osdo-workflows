@@ -1,0 +1,209 @@
+name: OSDO Container Security
+
+on:
+    workflow_call:
+        inputs:
+            # Container Configuration
+            image-name:
+                description: "Container image name to scan"
+                required: true
+                type: string
+            image-tag:
+                description: "Container image tag"
+                required: false
+                default: "latest"
+                type: string
+            registry:
+                description: "Container registry (docker.io, ghcr.io, etc.)"
+                required: false
+                default: "docker.io"
+                type: string
+            dockerfile-path:
+                description: "Path to Dockerfile for analysis"
+                required: false
+                default: "./Dockerfile"
+                type: string
+
+            # Scanning Configuration
+            scanners:
+                description: "Container scanners to use (trivy, grype, all)"
+                required: false
+                default: "trivy"
+                type: string
+            severity-threshold:
+                description: "Minimum severity to report (LOW, MEDIUM, HIGH, CRITICAL)"
+                required: false
+                default: "MEDIUM"
+                type: string
+
+            # Security Features
+            enable-sbom:
+                description: "Generate SBOM for container"
+                required: false
+                default: true
+                type: boolean
+            enable-signing:
+                description: "Sign container image with Cosign"
+                required: false
+                default: false
+                type: boolean
+            enable-dockerfile-lint:
+                description: "Lint Dockerfile for best practices"
+                required: false
+                default: true
+                type: boolean
+
+            # Thresholds
+            critical-threshold:
+                description: "Maximum critical vulnerabilities allowed"
+                required: false
+                default: "0"
+                type: string
+            fail-on-critical:
+                description: "Fail pipeline on critical vulnerabilities"
+                required: false
+                default: true
+                type: boolean
+
+        outputs:
+            vulnerabilities-found:
+                description: "Total vulnerabilities found"
+                value: ${{ jobs.container-scan.outputs.total-vulnerabilities }}
+            critical-count:
+                description: "Critical vulnerabilities count"
+                value: ${{ jobs.container-scan.outputs.critical-count }}
+            high-count:
+                description: "High vulnerabilities count"
+                value: ${{ jobs.container-scan.outputs.high-count }}
+            image-signed:
+                description: "Whether image was signed"
+                value: ${{ jobs.sign-image.outputs.signed }}
+            sbom-path:
+                description: "Path to generated SBOM"
+                value: ${{ jobs.container-scan.outputs.sbom-path }}
+            security-score:
+                description: "Overall security score (0-100)"
+                value: ${{ jobs.container-scan.outputs.security-score }}
+
+permissions:
+    contents: read
+    security-events: write
+    packages: read
+    id-token: write
+
+jobs:
+    container-scan:
+        name: "Container Security Scan"
+        runs-on: ubuntu-latest
+        outputs:
+            total-vulnerabilities: ${{ steps.scan.outputs.vulnerabilities-found }}
+            critical-count: ${{ steps.scan.outputs.critical-count }}
+            high-count: ${{ steps.scan.outputs.high-count }}
+            dockerfile-issues: ${{ steps.scan.outputs.dockerfile-issues }}
+            sbom-path: ${{ steps.scan.outputs.sbom-path }}
+            security-score: ${{ steps.calculate-score.outputs.score }}
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Set up Docker Buildx
+              uses: docker/setup-buildx-action@v3
+
+            - name: Build Image for Scanning
+              run: |
+                  docker build -t ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }} -f ${{ inputs.dockerfile-path }} .
+
+            - name: Run Container Security Scan
+              id: scan
+              uses: opensecdevops/osdo-actions/actions/osdo-container-scan@osdo-container-scan/v1.0.0
+              with:
+                  image-name: ${{ inputs.registry }}/${{ inputs.image-name }}
+                  image-tag: ${{ inputs.image-tag }}
+                  dockerfile-path: ${{ inputs.dockerfile-path }}
+                  scanners: ${{ inputs.scanners }}
+                  enable-dockerfile-lint: ${{ inputs.enable-dockerfile-lint }}
+                  enable-sbom: ${{ inputs.enable-sbom }}
+                  severity-threshold: ${{ inputs.severity-threshold }}
+                  fail-on-critical: ${{ inputs.fail-on-critical }}
+                  results-dir: .osdo/results
+
+            - name: Upload SARIF Results
+              uses: github/codeql-action/upload-sarif@v3
+              if: always()
+              with:
+                  sarif_file: .osdo/results/container/trivy.sarif
+                  category: container-security
+              continue-on-error: true
+
+            - name: Upload Scan Artifacts
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: container-scan-results
+                  path: .osdo/results/container/
+                  retention-days: 30
+
+            - name: Calculate Security Score
+              id: calculate-score
+              run: |
+                  critical=${{ steps.scan.outputs.critical-count || 0 }}
+                  high=${{ steps.scan.outputs.high-count || 0 }}
+                  dockerfile_issues=${{ steps.scan.outputs.dockerfile-issues || 0 }}
+
+                  # Simple scoring algorithm
+                  score=100
+                  score=$((score - (critical * 10)))
+                  score=$((score - (high * 5)))
+                  score=$((score - (dockerfile_issues * 2)))
+                  score=$((score < 0 ? 0 : score))
+
+                  echo "score=$score" >> $GITHUB_OUTPUT
+
+            - name: Generate Summary Report
+              run: |
+                  cat >> $GITHUB_STEP_SUMMARY <<EOF
+                  # 🐳 Container Security Report
+
+                  ## Image Details
+                  - **Image:** \`${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}\`
+                  - **Security Score:** ${{ steps.calculate-score.outputs.score }}/100
+
+                  ## Vulnerability Summary
+                  - **Critical:** ${{ steps.scan.outputs.critical-count || 0 }}
+                  - **High:** ${{ steps.scan.outputs.high-count || 0 }}
+                  - **Total:** ${{ steps.scan.outputs.vulnerabilities-found || 0 }}
+
+                  ## Dockerfile Analysis
+                  - **Issues Found:** ${{ steps.scan.outputs.dockerfile-issues || 0 }}
+
+                  ## Security Features
+                  - **SBOM Generated:** ${{ inputs.enable-sbom }}
+                  - **Image Signed:** ${{ inputs.enable-signing }}
+
+                  ## Recommendations
+                  $(if [ "${{ steps.scan.outputs.critical-count }}" -gt "0" ]; then echo "⚠️ **Fix critical vulnerabilities immediately**"; fi)
+                  $(if [ "${{ steps.calculate-score.outputs.score }}" -lt "70" ]; then echo "⚠️ **Security score is below recommended threshold**"; fi)
+                  $(if [ "${{ steps.scan.outputs.dockerfile-issues }}" -gt "0" ]; then echo "ℹ️ Review and fix Dockerfile best practices issues"; fi)
+                  EOF
+
+    sign-image:
+        name: "Sign Container Image"
+        runs-on: ubuntu-latest
+        if: ${{ inputs.enable-signing }}
+        needs: container-scan
+        outputs:
+            signed: ${{ steps.sign.outputs.signed }}
+        steps:
+            - name: Install Cosign
+              uses: sigstore/cosign-installer@v3
+
+            - name: Sign Container Image
+              id: sign
+              uses: opensecdevops/osdo-actions/actions/osdo-sign@osdo-sign/v1.0.0
+              with:
+                  artifact-name: ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}
+                  artifact-type: container
+
+            - name: Verify Signature
+              run: |
+                  cosign verify ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}

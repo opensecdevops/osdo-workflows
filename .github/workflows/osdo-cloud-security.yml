@@ -1,0 +1,118 @@
+name: OSDO Cloud Security
+
+on:
+    workflow_call:
+        inputs:
+            # Cloud Provider Configuration
+            cloud-provider:
+                description: "Cloud provider (aws, azure, gcp, multi-cloud)"
+                required: true
+                type: string
+            regions:
+                description: "Regions to scan (comma-separated)"
+                required: false
+                default: "us-east-1"
+                type: string
+
+            # Compliance & Standards
+            compliance-frameworks:
+                description: "Compliance frameworks (cis, nist, pci-dss, hipaa, soc2)"
+                required: false
+                default: "cis"
+                type: string
+
+            # Security Analysis
+            enable-iam-analysis:
+                description: "Perform IAM policy analysis"
+                required: false
+                default: true
+                type: boolean
+
+        outputs:
+            misconfigurations-found:
+                description: "Total misconfigurations found"
+                value: ${{ jobs.cloud-scan.outputs.misconfigurations }}
+            compliance-score:
+                description: "Compliance score percentage"
+                value: ${{ jobs.cloud-scan.outputs.compliance-score }}
+            security-score:
+                description: "Overall cloud security score (0-100)"
+                value: ${{ jobs.cloud-scan.outputs.security-score }}
+
+permissions:
+    contents: read
+    id-token: write
+    security-events: write
+
+jobs:
+    cloud-scan:
+        name: "Cloud Security Scan"
+        runs-on: ubuntu-latest
+        outputs:
+            misconfigurations: ${{ steps.scan.outputs.misconfigurations-found }}
+            compliance-score: ${{ steps.scan.outputs.compliance-score }}
+            security-score: ${{ steps.calculate.outputs.score }}
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Configure Cloud Credentials
+              run: |
+                  echo "Configuring credentials for ${{ inputs.cloud-provider }}..."
+                  # Actual credential configuration would happen here
+
+            - name: Run Cloud Security Scan
+              id: scan
+              uses: opensecdevops/osdo-actions/actions/osdo-cloud-scan@osdo-cloud-scan/v1.0.0
+              with:
+                  cloud-provider: ${{ inputs.cloud-provider }}
+                  regions: ${{ inputs.regions }}
+                  compliance-frameworks: ${{ inputs.compliance-frameworks }}
+                  enable-iam-analysis: ${{ inputs.enable-iam-analysis }}
+                  results-dir: .osdo/results
+
+            - name: Upload Cloud Scan Results
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: cloud-scan-results
+                  path: .osdo/results/cloud/
+                  retention-days: 30
+
+            - name: Calculate Security Score
+              id: calculate
+              run: |
+                  misconfigurations=${{ steps.scan.outputs.misconfigurations-found || 0 }}
+                  critical=${{ steps.scan.outputs.critical-count || 0 }}
+                  compliance=${{ steps.scan.outputs.compliance-score || 100 }}
+
+                  # Calculate overall security score
+                  score=100
+                  score=$((score - (critical * 10)))
+                  score=$((score - (misconfigurations * 2)))
+                  score=$(((score + compliance) / 2))
+                  score=$((score < 0 ? 0 : score))
+
+                  echo "score=$score" >> $GITHUB_OUTPUT
+
+            - name: Generate Summary
+              run: |
+                  cat >> $GITHUB_STEP_SUMMARY <<EOF
+                  # ☁️ Cloud Security Report
+
+                  ## Cloud Provider: ${{ inputs.cloud-provider }}
+                  ## Security Score: ${{ steps.calculate.outputs.score }}/100
+
+                  ## Misconfigurations Summary
+                  - **Total Misconfigurations:** ${{ steps.scan.outputs.misconfigurations-found || 0 }}
+                  - **Critical:** ${{ steps.scan.outputs.critical-count || 0 }}
+
+                  ## Compliance
+                  - **Framework:** ${{ inputs.compliance-frameworks }}
+                  - **Compliance Score:** ${{ steps.scan.outputs.compliance-score || 'N/A' }}%
+
+                  ## Recommendations
+                  $(if [ "${{ steps.scan.outputs.critical-count }}" -gt "0" ]; then echo "🚨 **URGENT:** Fix critical cloud misconfigurations"; fi)
+                  $(if [ "${{ steps.scan.outputs.compliance-score }}" -lt "80" ]; then echo "⚠️ Compliance score below recommended threshold (80%)"; fi)
+                  $(if [ "${{ steps.calculate.outputs.score }}" -lt "70" ]; then echo "⚠️ Overall security score needs improvement"; fi)
+                  EOF

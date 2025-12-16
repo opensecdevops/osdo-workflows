@@ -1,0 +1,135 @@
+name: OSDO IaC Security
+
+on:
+  workflow_call:
+    inputs:
+      # IaC Configuration
+      iac-directory:
+        description: "Directory containing IaC files"
+        required: false
+        default: "."
+        type: string
+      iac-type:
+        description: "Type of IaC (terraform, cloudformation, kubernetes, helm, ansible, all)"
+        required: false
+        default: "all"
+        type: string
+
+      # Scanning Configuration
+      scanners:
+        description: "IaC scanners to use (checkov, kics, tfsec, terrascan, all)"
+        required: false
+        default: "all"
+        type: string
+      compliance-frameworks:
+        description: "Compliance frameworks (cis, nist, pci-dss, hipaa, soc2)"
+        required: false
+        default: "cis"
+        type: string
+      enable-kubernetes-validation:
+        description: "Enable Kubernetes manifest validation"
+        required: false
+        default: true
+        type: boolean
+      enable-drift-detection:
+        description: "Enable infrastructure drift detection (Terraform only)"
+        required: false
+        default: false
+        type: boolean
+
+      # Thresholds
+      fail-on-high:
+        description: "Fail on high severity findings"
+        required: false
+        default: true
+        type: boolean
+
+    outputs:
+      violations-found:
+        description: "Total violations found"
+        value: ${{ jobs.iac-scan.outputs.violations }}
+      critical-count:
+        description: "Critical violations"
+        value: ${{ jobs.iac-scan.outputs.critical }}
+      compliance-score:
+        description: "Compliance score percentage"
+        value: ${{ jobs.iac-scan.outputs.compliance-score }}
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: write
+
+jobs:
+  iac-scan:
+    name: "IaC Security Scan"
+    runs-on: ubuntu-latest
+    outputs:
+      violations: ${{ steps.scan.outputs.violations-found }}
+      critical: ${{ steps.scan.outputs.critical-count }}
+      high: ${{ steps.scan.outputs.high-count }}
+      compliance-score: ${{ steps.compliance.outputs.score }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run IaC Security Scan
+        id: scan
+        uses: opensecdevops/osdo-actions/actions/osdo-iac-scan@osdo-iac-scan/v1.0.0
+        with:
+          iac-directory: ${{ inputs.iac-directory }}
+          iac-type: ${{ inputs.iac-type }}
+          scanners: ${{ inputs.scanners }}
+          compliance-frameworks: ${{ inputs.compliance-frameworks }}
+          enable-kubernetes-validation: ${{ inputs.enable-kubernetes-validation }}
+          fail-on-high: ${{ inputs.fail-on-high }}
+          results-dir: .osdo/results
+
+      - name: Upload Scan Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iac-scan-results
+          path: .osdo/results/iac/
+          retention-days: 30
+
+      - name: Calculate Compliance Score
+        id: compliance
+        run: |
+          violations=${{ steps.scan.outputs.violations-found || 0 }}
+          critical=${{ steps.scan.outputs.critical-count || 0 }}
+          high=${{ steps.scan.outputs.high-count || 0 }}
+
+          # Calculate compliance percentage
+          total_checks=100
+          failed_checks=$((critical + high))
+          passed_checks=$((total_checks - failed_checks))
+          passed_checks=$((passed_checks < 0 ? 0 : passed_checks))
+
+          score=$((passed_checks * 100 / total_checks))
+
+          echo "score=$score" >> $GITHUB_OUTPUT
+
+      - name: Generate Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          # 🏗️ Infrastructure as Code Security Report
+
+          ## Configuration
+          - **IaC Type:** ${{ inputs.iac-type }}
+          - **Directory:** \`${{ inputs.iac-directory }}\`
+          - **Frameworks:** ${{ inputs.compliance-frameworks }}
+
+          ## Scan Results
+          - **Total Violations:** ${{ steps.scan.outputs.violations-found || 0 }}
+          - **Critical:** ${{ steps.scan.outputs.critical-count || 0 }}
+          - **High:** ${{ steps.scan.outputs.high-count || 0 }}
+          - **Compliance Score:** ${{ steps.compliance.outputs.score }}%
+
+          ## Recommendations
+          $(if [ "${{ steps.scan.outputs.critical-count }}" -gt "0" ]; then echo "🚨 **CRITICAL:** Fix critical violations immediately"; fi)
+          $(if [ "${{ steps.scan.outputs.high-count }}" -gt "0" ]; then echo "⚠️ Address high severity violations"; fi)
+          $(if [ "${{ steps.compliance.outputs.score }}" -lt "80" ]; then echo "⚠️ Compliance score below recommended threshold (80%)"; fi)
+          EOF

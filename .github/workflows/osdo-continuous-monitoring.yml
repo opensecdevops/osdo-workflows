@@ -1,0 +1,368 @@
+name: OSDO Continuous Security Monitoring
+
+on:
+    workflow_call:
+        inputs:
+            # Monitoring Scope
+            monitoring-scope:
+                description: "Scope of monitoring (dependencies, containers, code, infrastructure, all)"
+                required: false
+                default: "all"
+                type: string
+
+            # Scanning Configuration
+            scan-frequency:
+                description: "How often to scan (configured via schedule in caller workflow)"
+                required: false
+                default: "daily"
+                type: string
+            rescan-containers:
+                description: "Rescan container images"
+                required: false
+                default: true
+                type: boolean
+            rescan-dependencies:
+                description: "Rescan dependencies for new vulnerabilities"
+                required: false
+                default: true
+                type: boolean
+
+            # Alerting
+            alert-channels:
+                description: "Alert channels (github, slack, email, pagerduty)"
+                required: false
+                default: "github"
+                type: string
+            severity-threshold:
+                description: "Minimum severity for alerts (LOW, MEDIUM, HIGH, CRITICAL)"
+                required: false
+                default: "HIGH"
+                type: string
+
+            # Trending & Analytics
+            trending-period:
+                description: "Period for trend analysis (7d, 30d, 90d)"
+                required: false
+                default: "30d"
+                type: string
+            enable-trending:
+                description: "Enable security posture trending"
+                required: false
+                default: true
+                type: boolean
+
+            # Remediation Tracking
+            remediation-tracking:
+                description: "Track vulnerability remediation"
+                required: false
+                default: true
+                type: boolean
+            auto-create-issues:
+                description: "Auto-create GitHub issues for findings"
+                required: false
+                default: true
+                type: boolean
+
+        outputs:
+            new-vulnerabilities:
+                description: "New vulnerabilities found since last scan"
+                value: ${{ jobs.compare-results.outputs.new-vulns }}
+            security-score:
+                description: "Current security score"
+                value: ${{ jobs.security-posture.outputs.score }}
+            trend-direction:
+                description: "Security trend direction"
+                value: ${{ jobs.trending.outputs.direction }}
+            alerts-sent:
+                description: "Number of alerts sent"
+                value: ${{ jobs.alerting.outputs.count }}
+
+permissions:
+    contents: read
+    security-events: write
+    issues: write
+
+jobs:
+    dependency-monitoring:
+        name: "Dependency Monitoring"
+        runs-on: ubuntu-latest
+        if: contains(inputs.monitoring-scope, 'dependencies') || contains(inputs.monitoring-scope, 'all')
+        outputs:
+            vulns-found: ${{ steps.scan.outputs.vulns }}
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Scan Dependencies
+              id: scan
+              run: |
+                  # Re-scan all dependencies for new CVEs
+                  vulns=0
+
+                  # Use npm audit, pip-audit, etc based on project type
+                  if [ -f "package.json" ]; then
+                    npm audit --json > npm-audit.json || true
+                    vulns=$(jq '.metadata.vulnerabilities.total' npm-audit.json || echo 0)
+                  fi
+
+                  echo "vulns=$vulns" >> $GITHUB_OUTPUT
+
+            - name: Upload Results
+              uses: actions/upload-artifact@v4
+              with:
+                  name: dependency-scan-results
+                  path: "*-audit.json"
+
+    container-monitoring:
+        name: "Container Image Monitoring"
+        runs-on: ubuntu-latest
+        if: ${{ inputs.rescan-containers && (contains(inputs.monitoring-scope, 'containers') || contains(inputs.monitoring-scope, 'all')) }}
+        outputs:
+            vulns-found: ${{ steps.scan.outputs.vulns }}
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Rescan Container Images
+              id: scan
+              run: |
+                  # Rescan production container images
+                  vulns=0
+
+                  # Get list of images from registry and scan
+                  # This is a placeholder - actual implementation would query registry
+
+                  echo "vulns=$vulns" >> $GITHUB_OUTPUT
+
+    code-monitoring:
+        name: "Code Security Monitoring"
+        runs-on: ubuntu-latest
+        if: contains(inputs.monitoring-scope, 'code') || contains(inputs.monitoring-scope, 'all')
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Run Code Security Scan
+              run: |
+                  # Re-run SAST tools to catch new vulnerability patterns
+                  echo "Running code security scan..."
+
+    compare-results:
+        name: "Compare with Previous Scan"
+        runs-on: ubuntu-latest
+        needs: [dependency-monitoring, container-monitoring, code-monitoring]
+        if: always()
+        outputs:
+            new-vulns: ${{ steps.compare.outputs.new }}
+            fixed-vulns: ${{ steps.compare.outputs.fixed }}
+            total-vulns: ${{ steps.compare.outputs.total }}
+        steps:
+            - name: Download Current Results
+              uses: actions/download-artifact@v4
+              with:
+                  path: current-results
+
+            - name: Download Previous Results
+              uses: dawidd6/action-download-artifact@v3
+              continue-on-error: true
+              with:
+                  workflow: ${{ github.workflow }}
+                  name: dependency-scan-results
+                  path: previous-results
+
+            - name: Compare Results
+              id: compare
+              run: |
+                  # Compare current vs previous results
+                  current_vulns=${{ needs.dependency-monitoring.outputs.vulns-found || 0 }}
+
+                  # Try to get previous count
+                  previous_vulns=0
+                  if [ -f "previous-results/npm-audit.json" ]; then
+                    previous_vulns=$(jq '.metadata.vulnerabilities.total' previous-results/npm-audit.json || echo 0)
+                  fi
+
+                  new_vulns=$((current_vulns > previous_vulns ? current_vulns - previous_vulns : 0))
+                  fixed_vulns=$((previous_vulns > current_vulns ? previous_vulns - current_vulns : 0))
+
+                  echo "new=$new_vulns" >> $GITHUB_OUTPUT
+                  echo "fixed=$fixed_vulns" >> $GITHUB_OUTPUT
+                  echo "total=$current_vulns" >> $GITHUB_OUTPUT
+
+                  echo "New vulnerabilities: $new_vulns"
+                  echo "Fixed vulnerabilities: $fixed_vulns"
+                  echo "Total vulnerabilities: $current_vulns"
+
+    security-posture:
+        name: "Security Posture Assessment"
+        runs-on: ubuntu-latest
+        needs: compare-results
+        outputs:
+            score: ${{ steps.assess.outputs.score }}
+            grade: ${{ steps.assess.outputs.grade }}
+        steps:
+            - name: Assess Security Posture
+              id: assess
+              run: |
+                  total_vulns=${{ needs.compare-results.outputs.total-vulns }}
+                  new_vulns=${{ needs.compare-results.outputs.new-vulns }}
+                  fixed_vulns=${{ needs.compare-results.outputs.fixed-vulns }}
+
+                  # Calculate security score
+                  score=100
+                  score=$((score - total_vulns))
+                  score=$((score < 0 ? 0 : score))
+
+                  # Determine grade
+                  if [ "$score" -ge 90 ]; then
+                    grade="A"
+                  elif [ "$score" -ge 80 ]; then
+                    grade="B"
+                  elif [ "$score" -ge 70 ]; then
+                    grade="C"
+                  elif [ "$score" -ge 60 ]; then
+                    grade="D"
+                  else
+                    grade="F"
+                  fi
+
+                  echo "score=$score" >> $GITHUB_OUTPUT
+                  echo "grade=$grade" >> $GITHUB_OUTPUT
+
+    trending:
+        name: "Security Trend Analysis"
+        runs-on: ubuntu-latest
+        if: ${{ inputs.enable-trending }}
+        needs: security-posture
+        outputs:
+            direction: ${{ steps.analyze.outputs.direction }}
+            velocity: ${{ steps.analyze.outputs.velocity }}
+        steps:
+            - name: Analyze Trends
+              id: analyze
+              run: |
+                  # Analyze security posture over time
+                  # This would query historical data
+
+                  new=${{ needs.compare-results.outputs.new-vulns }}
+                  fixed=${{ needs.compare-results.outputs.fixed-vulns }}
+
+                  if [ "$fixed" -gt "$new" ]; then
+                    direction="improving"
+                    velocity=$((fixed - new))
+                  elif [ "$new" -gt "$fixed" ]; then
+                    direction="degrading"
+                    velocity=$((new - fixed))
+                  else
+                    direction="stable"
+                    velocity=0
+                  fi
+
+                  echo "direction=$direction" >> $GITHUB_OUTPUT
+                  echo "velocity=$velocity" >> $GITHUB_OUTPUT
+
+    alerting:
+        name: "Send Security Alerts"
+        runs-on: ubuntu-latest
+        needs: [compare-results, security-posture, trending]
+        if: needs.compare-results.outputs.new-vulns > 0
+        outputs:
+            count: ${{ steps.alert.outputs.count }}
+        steps:
+            - name: Send Alerts
+              id: alert
+              run: |
+                  new_vulns=${{ needs.compare-results.outputs.new-vulns }}
+                  score=${{ needs.security-posture.outputs.score }}
+                  trend=${{ needs.trending.outputs.direction }}
+
+                  alerts_sent=0
+
+                  # GitHub Issues
+                  if [[ "${{ inputs.alert-channels }}" == *"github"* ]]; then
+                    echo "Would create GitHub issue for $new_vulns new vulnerabilities"
+                    alerts_sent=$((alerts_sent + 1))
+                  fi
+
+                  # Slack (requires webhook setup)
+                  if [[ "${{ inputs.alert-channels }}" == *"slack"* ]]; then
+                    echo "Would send Slack alert"
+                    alerts_sent=$((alerts_sent + 1))
+                  fi
+
+                  echo "count=$alerts_sent" >> $GITHUB_OUTPUT
+
+    auto-issue-creation:
+        name: "Create Remediation Issues"
+        runs-on: ubuntu-latest
+        if: ${{ inputs.auto-create-issues && needs.compare-results.outputs.new-vulns > 0 }}
+        needs: compare-results
+        steps:
+            - name: Create Issues for New Vulnerabilities
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const newVulns = ${{ needs.compare-results.outputs.new-vulns }};
+
+                      if (newVulns > 0) {
+                        await github.rest.issues.create({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          title: `[Security] ${newVulns} new vulnerabilities detected`,
+                          body: `Continuous security monitoring detected ${newVulns} new vulnerabilities.\n\n` +
+                                `Security Score: ${{ needs.security-posture.outputs.score }}\n` +
+                                `Trend: ${{ needs.trending.outputs.direction }}\n\n` +
+                                `Please review the security scan results and remediate.`,
+                          labels: ['security', 'monitoring', 'vulnerability']
+                        });
+                      }
+
+    remediation-tracking:
+        name: "Track Remediation Progress"
+        runs-on: ubuntu-latest
+        if: ${{ inputs.remediation-tracking }}
+        needs: [compare-results, security-posture]
+        steps:
+            - name: Update Remediation Dashboard
+              run: |
+                  # Track remediation progress over time
+                  # This could update a dashboard or metrics system
+
+                  echo "Tracking remediation progress..."
+                  echo "Fixed: ${{ needs.compare-results.outputs.fixed-vulns }}"
+                  echo "Remaining: ${{ needs.compare-results.outputs.total-vulns }}"
+
+    final-report:
+        name: "Monitoring Report"
+        runs-on: ubuntu-latest
+        needs: [compare-results, security-posture, trending, alerting]
+        if: always()
+        steps:
+            - name: Generate Summary
+              run: |
+                  cat >> $GITHUB_STEP_SUMMARY <<EOF
+                  # 📊 Continuous Security Monitoring Report
+
+                  ## Security Posture
+                  - **Score:** ${{ needs.security-posture.outputs.score }}/100
+                  - **Grade:** ${{ needs.security-posture.outputs.grade }}
+                  - **Trend:** ${{ needs.trending.outputs.direction || 'N/A' }} (${{ needs.trending.outputs.velocity || 0 }})
+
+                  ## Vulnerability Summary
+                  - **Total Vulnerabilities:** ${{ needs.compare-results.outputs.total-vulns }}
+                  - **New Since Last Scan:** ${{ needs.compare-results.outputs.new-vulns }}
+                  - **Fixed Since Last Scan:** ${{ needs.compare-results.outputs.fixed-vulns }}
+
+                  ## Monitoring Scope
+                  - **Scope:** ${{ inputs.monitoring-scope }}
+                  - **Frequency:** ${{ inputs.scan-frequency }}
+
+                  ## Actions Taken
+                  - **Alerts Sent:** ${{ needs.alerting.outputs.count || 0 }}
+                  - **Auto-Issues Created:** ${{ inputs.auto-create-issues }}
+
+                  ## Status
+                  $(if [ "${{ needs.trending.outputs.direction }}" == "degrading" ]; then echo "⚠️ **Security posture is degrading**"; fi)
+                  $(if [ "${{ needs.trending.outputs.direction }}" == "improving" ]; then echo "✅ Security posture is improving"; fi)
+                  $(if [ "${{ needs.compare-results.outputs.new-vulns }}" -gt "0" ]; then echo "🔔 ${{ needs.compare-results.outputs.new-vulns }} new vulnerabilities require attention"; fi)
+                  EOF

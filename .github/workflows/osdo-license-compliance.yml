@@ -1,0 +1,104 @@
+name: OSDO License Compliance
+
+on:
+  workflow_call:
+    inputs:
+      # Package Manager Configuration
+      package-manager:
+        description: "Package manager (npm, pip, maven, gradle, go, all)"
+        required: false
+        default: "all"
+        type: string
+
+      # License Policy
+      allowed-licenses:
+        description: "Comma-separated list of allowed licenses"
+        required: false
+        default: "MIT,Apache-2.0,BSD-3-Clause,BSD-2-Clause,ISC"
+        type: string
+      denied-licenses:
+        description: "Comma-separated list of denied licenses"
+        required: false
+        default: "GPL-3.0,AGPL-3.0,SSPL-1.0"
+        type: string
+
+      # Thresholds
+      fail-on-denied:
+        description: "Fail pipeline if denied licenses found"
+        required: false
+        default: true
+        type: boolean
+
+    outputs:
+      total-licenses:
+        description: "Total unique licenses found"
+        value: ${{ jobs.license-scan.outputs.total }}
+      denied-licenses-found:
+        description: "Count of denied licenses"
+        value: ${{ jobs.license-scan.outputs.denied }}
+      compliance-status:
+        description: "Overall compliance status"
+        value: ${{ jobs.license-scan.outputs.status }}
+
+permissions:
+  contents: read
+
+jobs:
+  license-scan:
+    name: "License Compliance Scan"
+    runs-on: ubuntu-latest
+    outputs:
+      total: ${{ steps.scan.outputs.total-licenses }}
+      denied: ${{ steps.scan.outputs.denied-found }}
+      status: ${{ steps.scan.outputs.compliance-status }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run License Compliance Scan
+        id: scan
+        uses: opensecdevops/osdo-actions/actions/osdo-license-scan@osdo-license-scan/v1.0.0
+        with:
+          package-manager: ${{ inputs.package-manager }}
+          allowed-licenses: ${{ inputs.allowed-licenses }}
+          denied-licenses: ${{ inputs.denied-licenses }}
+          fail-on-denied: ${{ inputs.fail-on-denied }}
+          results-dir: .osdo/results
+
+      - name: Upload License Scan Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: license-scan-results
+          path: .osdo/results/licenses/
+          retention-days: 90
+
+      - name: Generate Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          # 📜 License Compliance Report
+
+          ## Compliance Status: ${{ steps.scan.outputs.compliance-status || 'UNKNOWN' }}
+
+          ## License Summary
+          - **Total Licenses Found:** ${{ steps.scan.outputs.total-licenses || 0 }}
+          - **Denied Licenses:** ${{ steps.scan.outputs.denied-found || 0 }}
+
+          ## Policy
+          - **Allowed Licenses:** \`${{ inputs.allowed-licenses }}\`
+          - **Denied Licenses:** \`${{ inputs.denied-licenses }}\`
+
+          ## Actions Required
+          $(if [ "${{ steps.scan.outputs.denied-found }}" -gt "0" ]; then echo "🚨 **CRITICAL:** Remove or replace packages with denied licenses"; fi)
+          $(if [ "${{ steps.scan.outputs.compliance-status }}" == "NON_COMPLIANT" ]; then echo "⚠️ License compliance violations detected"; fi)
+          EOF

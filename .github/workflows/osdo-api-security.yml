@@ -1,0 +1,126 @@
+name: OSDO API Security
+
+on:
+    workflow_call:
+        inputs:
+            # API Configuration
+            api-spec-path:
+                description: "Path to API specification (OpenAPI/Swagger)"
+                required: false
+                default: ""
+                type: string
+            api-type:
+                description: "API type (REST, GraphQL, gRPC)"
+                required: false
+                default: "REST"
+                type: string
+            base-url:
+                description: "Base URL of the API"
+                required: false
+                default: ""
+                type: string
+
+            # Testing Configuration
+            enable-fuzzing:
+                description: "Enable API fuzzing"
+                required: false
+                default: false
+                type: boolean
+            owasp-api-top-10:
+                description: "Test for OWASP API Security Top 10"
+                required: false
+                default: true
+                type: boolean
+            rate-limiting-test:
+                description: "Test rate limiting"
+                required: false
+                default: true
+                type: boolean
+            schema-validation:
+                description: "Validate API schema"
+                required: false
+                default: true
+                type: boolean
+
+        outputs:
+            security-score:
+                description: "API Security score (0-100)"
+                value: ${{ jobs.api-scan.outputs.score }}
+            spec-valid:
+                description: "API spec validation result"
+                value: ${{ jobs.api-scan.outputs.spec-valid }}
+            vulnerabilities-found:
+                description: "Total vulnerabilities found"
+                value: ${{ jobs.api-scan.outputs.vulnerabilities }}
+
+permissions:
+    contents: read
+    security-events: write
+
+jobs:
+    api-scan:
+        name: "API Security Scan"
+        runs-on: ubuntu-latest
+        outputs:
+            score: ${{ steps.scan.outputs.security-score }}
+            spec-valid: ${{ steps.scan.outputs.spec-valid }}
+            vulnerabilities: ${{ steps.scan.outputs.vulnerabilities-found }}
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+
+            - name: Setup Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: "3.11"
+
+            - name: Run API Security Scan
+              id: scan
+              uses: opensecdevops/osdo-actions/actions/osdo-api-scan@osdo-api-scan/v1.0.0
+              with:
+                  api-spec-path: ${{ inputs.api-spec-path }}
+                  api-type: ${{ inputs.api-type }}
+                  base-url: ${{ inputs.base-url }}
+                  enable-fuzzing: ${{ inputs.enable-fuzzing }}
+                  results-dir: .osdo/results
+
+            - name: Upload API Scan Results
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                  name: api-scan-results
+                  path: .osdo/results/api/
+                  retention-days: 30
+
+            - name: Generate Summary
+              run: |
+                  cat >> $GITHUB_STEP_SUMMARY <<EOF
+                  # 🔌 API Security Report
+
+                  ## API Configuration
+                  - **Type:** ${{ inputs.api-type }}
+                  - **Specification:** ${{ inputs.api-spec-path || 'Not provided' }}
+                  - **Base URL:** ${{ inputs.base-url || 'Not provided' }}
+
+                  ## Security Score: ${{ steps.scan.outputs.security-score || 'N/A' }}/100
+
+                  ## Validation
+                  - **Spec Valid:** ${{ steps.scan.outputs.spec-valid || 'N/A' }}
+                  - **Vulnerabilities:** ${{ steps.scan.outputs.vulnerabilities-found || 0 }}
+
+                  ## Tests Performed
+                  - **OWASP API Top 10:** ${{ inputs.owasp-api-top-10 }}
+                  - **Rate Limiting:** ${{ inputs.rate-limiting-test }}
+                  - **Schema Validation:** ${{ inputs.schema-validation }}
+                  - **API Fuzzing:** ${{ inputs.enable-fuzzing }}
+
+                  ## Recommendations
+                  $(if [ "${{ steps.scan.outputs.spec-valid }}" != "true" ] && [ -n "${{ inputs.api-spec-path }}" ]; then echo "⚠️ **Fix API specification errors**"; fi)
+                  $(if [ "${{ steps.scan.outputs.vulnerabilities-found }}" -gt "0" ]; then echo "⚠️ **Address API security vulnerabilities**"; fi)
+                  $(if [ "${{ steps.scan.outputs.security-score }}" -lt "70" ]; then echo "⚠️ **API security score below recommended threshold**"; fi)
+                  EOF

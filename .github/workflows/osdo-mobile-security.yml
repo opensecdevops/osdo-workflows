@@ -1,0 +1,98 @@
+name: OSDO Mobile Security
+
+on:
+  workflow_call:
+    inputs:
+      # Platform Configuration
+      platform:
+        description: "Mobile platform (android, ios, react-native, flutter)"
+        required: true
+        type: string
+      binary-path:
+        description: "Path to mobile binary (.apk, .ipa)"
+        required: false
+        default: ""
+        type: string
+      source-path:
+        description: "Path to source code"
+        required: false
+        default: "."
+        type: string
+
+      # Security Standards
+      masvs-level:
+        description: "OWASP MASVS level (L1, L2)"
+        required: false
+        default: "L1"
+        type: string
+      enable-masvs-compliance:
+        description: "Check OWASP MASVS compliance"
+        required: false
+        default: true
+        type: boolean
+
+    outputs:
+      security-score:
+        description: "Mobile security score (0-100)"
+        value: ${{ jobs.mobile-scan.outputs.score }}
+      masvs-compliance:
+        description: "MASVS compliance status"
+        value: ${{ jobs.mobile-scan.outputs.masvs-compliant }}
+      critical-issues:
+        description: "Critical security issues found"
+        value: ${{ jobs.mobile-scan.outputs.critical }}
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  mobile-scan:
+    name: "Mobile Security Scan"
+    runs-on: ubuntu-latest
+    outputs:
+      score: ${{ steps.scan.outputs.security-score }}
+      masvs-compliant: ${{ steps.scan.outputs.masvs-compliant }}
+      critical: ${{ steps.scan.outputs.critical-issues }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Mobile Security Scan
+        id: scan
+        uses: opensecdevops/osdo-actions/actions/osdo-mobile-scan@osdo-mobile-scan/v1.0.0
+        with:
+          platform: ${{ inputs.platform }}
+          binary-path: ${{ inputs.binary-path }}
+          source-path: ${{ inputs.source-path }}
+          masvs-level: ${{ inputs.masvs-level }}
+          results-dir: .osdo/results
+
+      - name: Upload Mobile Scan Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mobile-scan-results
+          path: .osdo/results/mobile/
+          retention-days: 30
+
+      - name: Generate Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          # 📱 Mobile Security Report
+
+          ## Platform: ${{ inputs.platform }}
+          ## Security Score: ${{ steps.scan.outputs.security-score || 'N/A' }}/100
+
+          ## OWASP MASVS
+          - **Target Level:** ${{ inputs.masvs-level }}
+          - **Compliance:** ${{ steps.scan.outputs.masvs-compliant || 'N/A' }}
+
+          ## Critical Issues
+          - **Count:** ${{ steps.scan.outputs.critical-issues || 0 }}
+
+          ## Recommendations
+          $(if [ "${{ steps.scan.outputs.masvs-compliant }}" != "true" ]; then echo "⚠️ **Improve MASVS compliance to meet ${{ inputs.masvs-level }} standard**"; fi)
+          $(if [ "${{ steps.scan.outputs.critical-issues }}" -gt "0" ]; then echo "🚨 **CRITICAL:** Fix critical security issues immediately"; fi)
+          $(if [ "${{ steps.scan.outputs.security-score }}" -lt "70" ]; then echo "⚠️ Mobile security score below recommended threshold"; fi)
+          EOF

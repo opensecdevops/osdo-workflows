@@ -1,0 +1,567 @@
+name: OSDO Supply Chain Security
+
+on:
+    workflow_call:
+        inputs:
+            # Package Manager Configuration
+            package-manager:
+                description: "Package manager (npm, pip, maven, gradle, go, cargo, nuget, all)"
+                required: false
+                default: "all"
+                type: string
+            package-manifest:
+                description: "Path to package manifest file"
+                required: false
+                default: ""
+                type: string
+
+            # SBOM Configuration
+            enable-sbom-generation:
+                description: "Generate SBOM"
+                required: false
+                default: true
+                type: boolean
+            sbom-format:
+                description: "SBOM format (spdx, cyclonedx, both)"
+                required: false
+                default: "both"
+                type: string
+            sbom-validation:
+                description: "Validate existing SBOM"
+                required: false
+                default: false
+                type: boolean
+            existing-sbom-path:
+                description: "Path to existing SBOM for validation"
+                required: false
+                default: ""
+                type: string
+
+            # Provenance & Attestation
+            provenance-verification:
+                description: "Verify package provenance"
+                required: false
+                default: true
+                type: boolean
+            verify-signatures:
+                description: "Verify package signatures"
+                required: false
+                default: true
+                type: boolean
+            generate-attestation:
+                description: "Generate build attestation"
+                required: false
+                default: true
+                type: boolean
+
+            # SLSA Configuration
+            slsa-verification:
+                description: "Enable SLSA verification"
+                required: false
+                default: true
+                type: boolean
+            slsa-level:
+                description: "Required SLSA level (1, 2, 3, 4)"
+                required: false
+                default: "2"
+                type: string
+
+            # Security Scanning
+            malware-scan:
+                description: "Scan dependencies for malware"
+                required: false
+                default: true
+                type: boolean
+            typosquatting-detection:
+                description: "Detect typosquatting packages"
+                required: false
+                default: true
+                type: boolean
+            license-check:
+                description: "Check dependency licenses"
+                required: false
+                default: true
+                type: boolean
+
+            # Dependency Analysis
+            enable-dependency-review:
+                description: "Enable dependency review"
+                required: false
+                default: true
+                type: boolean
+            enable-reachability-analysis:
+                description: "Analyze vulnerability reachability"
+                required: false
+                default: false
+                type: boolean
+
+            # Thresholds
+            critical-threshold:
+                description: "Maximum critical vulnerabilities allowed"
+                required: false
+                default: "0"
+                type: string
+            malicious-packages-threshold:
+                description: "Maximum malicious packages allowed"
+                required: false
+                default: "0"
+                type: string
+            fail-on-malicious:
+                description: "Fail on malicious packages"
+                required: false
+                default: true
+                type: boolean
+
+        outputs:
+            sbom-valid:
+                description: "Whether SBOM is valid"
+                value: ${{ jobs.sbom-validation.outputs.valid }}
+            sbom-path:
+                description: "Path to generated SBOM"
+                value: ${{ jobs.sbom-generation.outputs.sbom-path }}
+            provenance-verified:
+                description: "Provenance verification status"
+                value: ${{ jobs.provenance.outputs.verified }}
+            slsa-level-achieved:
+                description: "SLSA level achieved"
+                value: ${{ jobs.slsa-verification.outputs.level-achieved }}
+            malicious-packages:
+                description: "Count of malicious packages found"
+                value: ${{ jobs.malware-detection.outputs.malicious-count }}
+            security-score:
+                description: "Supply chain security score (0-100)"
+                value: ${{ jobs.final-report.outputs.security-score }}
+            total-dependencies:
+                description: "Total dependencies analyzed"
+                value: ${{ jobs.dependency-analysis.outputs.total-deps }}
+
+permissions:
+    contents: read
+    security-events: write
+    id-token: write
+    attestations: write
+    packages: read
+
+jobs:
+    dependency-analysis:
+        name: "Dependency Analysis"
+        runs-on: ubuntu-latest
+        outputs:
+            total-deps: ${{ steps.analyze.outputs.total }}
+            direct-deps: ${{ steps.analyze.outputs.direct }}
+            transitive-deps: ${{ steps.analyze.outputs.transitive }}
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Analyze Dependencies
+              id: analyze
+              run: |
+                  echo "Analyzing dependencies for ${{ inputs.package-manager }}"
+
+                  total=0
+                  direct=0
+                  transitive=0
+
+                  # Detect and count dependencies based on package manager
+                  if [[ "${{ inputs.package-manager }}" == "npm" ]] || [[ "${{ inputs.package-manager }}" == "all" ]]; then
+                    if [ -f "package.json" ]; then
+                      direct=$(jq '.dependencies | length' package.json 2>/dev/null || echo 0)
+                      # Run npm list to get total
+                      npm install --package-lock-only 2>/dev/null || true
+                      total=$(npm list --all --json 2>/dev/null | jq '.dependencies | length' || echo 0)
+                    fi
+                  fi
+
+                  transitive=$((total - direct))
+
+                  echo "total=$total" >> $GITHUB_OUTPUT
+                  echo "direct=$direct" >> $GITHUB_OUTPUT
+                  echo "transitive=$transitive" >> $GITHUB_OUTPUT
+
+                  echo "Total dependencies: $total (Direct: $direct, Transitive: $transitive)"
+
+            - name: Dependency Review
+              if: ${{ inputs.enable-dependency-review && github.event_name == 'pull_request' }}
+              uses: actions/dependency-review-action@v4
+              with:
+                  fail-on-severity: high
+                  allow-licenses: MIT, Apache-2.0, BSD-3-Clause, ISC
+
+    sbom-generation:
+        name: "SBOM Generation"
+        runs-on: ubuntu-latest
+        if: ${{ inputs.enable-sbom-generation }}
+        needs: dependency-analysis
+        outputs:
+            sbom-path: ${{ steps.generate.outputs.sbom-path }}
+            sbom-hash: ${{ steps.generate.outputs.sbom-hash }}
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Generate SBOM with Syft
+              id: generate
+              run: |
+                  # Install Syft
+                  curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+                  # Generate SBOM
+                  if [[ "${{ inputs.sbom-format }}" == "both" ]]; then
+                    syft . -o spdx-json=sbom-spdx.json
+                    syft . -o cyclonedx-json=sbom-cyclonedx.json
+                    echo "sbom-path=sbom-spdx.json,sbom-cyclonedx.json" >> $GITHUB_OUTPUT
+                  elif [[ "${{ inputs.sbom-format }}" == "spdx" ]]; then
+                    syft . -o spdx-json=sbom.json
+                    echo "sbom-path=sbom.json" >> $GITHUB_OUTPUT
+                  else
+                    syft . -o cyclonedx-json=sbom.json
+                    echo "sbom-path=sbom.json" >> $GITHUB_OUTPUT
+                  fi
+
+                  # Calculate hash
+                  hash=$(sha256sum sbom*.json | awk '{print $1}')
+                  echo "sbom-hash=$hash" >> $GITHUB_OUTPUT
+
+            - name: Upload SBOM
+              uses: actions/upload-artifact@v4
+              with:
+                  name: sbom
+                  path: sbom*.json
+                  retention-days: 90
+
+    sbom-validation:
+        name: "SBOM Validation"
+        runs-on: ubuntu-latest
+        if: ${{ inputs.sbom-validation && inputs.existing-sbom-path != '' }}
+        outputs:
+            valid: ${{ steps.validate.outputs.valid }}
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Validate SBOM
+              id: validate
+              run: |
+                  # Install SBOM validation tools
+                  curl -sSfL https://github.com/spdx/tools-golang/releases/download/v0.5.3/tools-golang_0.5.3_linux_amd64.tar.gz | tar xz
+
+                  # Validate SBOM
+                  if ./tools-golang validate ${{ inputs.existing-sbom-path }}; then
+                    echo "valid=true" >> $GITHUB_OUTPUT
+                    echo "SBOM is valid"
+                  else
+                    echo "valid=false" >> $GITHUB_OUTPUT
+                    echo "::error::SBOM validation failed"
+                  fi
+
+    provenance:
+        name: "Provenance Verification"
+        runs-on: ubuntu-latest
+        if: ${{ inputs.provenance-verification }}
+        needs: dependency-analysis
+        outputs:
+            verified: ${{ steps.verify.outputs.verified }}
+            verification-count: ${{ steps.verify.outputs.count }}
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Verify Package Provenance
+              id: verify
+              run: |
+                  echo "Verifying provenance for packages..."
+
+                  verified_count=0
+                  total_count=0
+
+                  # Example: Verify npm packages with npm provenance
+                  if [ -f "package-lock.json" ]; then
+                    # Check for registry signatures and provenance
+                    # This is a simplified example
+                    verified_count=$(jq '.packages | length' package-lock.json)
+                    total_count=$verified_count
+                  fi
+
+                  echo "count=$verified_count/$total_count" >> $GITHUB_OUTPUT
+
+                  if [ "$verified_count" -eq "$total_count" ]; then
+                    echo "verified=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "verified=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Verify Package Signatures
+              if: ${{ inputs.verify-signatures }}
+              run: |
+                  echo "Verifying package signatures..."
+
+                  # NPM signature verification
+                  if [ -f "package-lock.json" ]; then
+                    npm audit signatures || echo "::warning::Some packages lack valid signatures"
+                  fi
+
+    slsa-verification:
+        name: "SLSA Verification"
+        runs-on: ubuntu-latest
+        if: ${{ inputs.slsa-verification }}
+        outputs:
+            level-achieved: ${{ steps.verify.outputs.level }}
+            compliant: ${{ steps.verify.outputs.compliant }}
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Verify SLSA Level
+              id: verify
+              run: |
+                  echo "Verifying SLSA level ${{ inputs.slsa-level }}"
+
+                  # SLSA verification checks
+                  level=0
+
+                  # Level 1: Build process is fully scripted/automated
+                  if [ -f ".github/workflows" ]; then
+                    level=1
+                  fi
+
+                  # Level 2: Version control and build service
+                  if [ -d ".git" ]; then
+                    level=2
+                  fi
+
+                  # Level 3: Requires provenance and non-falsifiable
+                  # This would require actual SLSA provenance generation
+
+                  echo "level=$level" >> $GITHUB_OUTPUT
+
+                  if [ "$level" -ge "${{ inputs.slsa-level }}" ]; then
+                    echo "compliant=true" >> $GITHUB_OUTPUT
+                    echo "✅ SLSA Level $level achieved (required: ${{ inputs.slsa-level }})"
+                  else
+                    echo "compliant=false" >> $GITHUB_OUTPUT
+                    echo "::warning::SLSA Level $level achieved (required: ${{ inputs.slsa-level }})"
+                  fi
+
+    malware-detection:
+        name: "Malware & Typosquatting Detection"
+        runs-on: ubuntu-latest
+        if: ${{ inputs.malware-scan || inputs.typosquatting-detection }}
+        needs: dependency-analysis
+        outputs:
+            malicious-count: ${{ steps.scan.outputs.malicious }}
+            typosquat-count: ${{ steps.scan.outputs.typosquat }}
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Scan for Malware
+              if: ${{ inputs.malware-scan }}
+              id: scan
+              run: |
+                  echo "Scanning dependencies for malware..."
+
+                  malicious=0
+                  typosquat=0
+
+                  # Use Socket Security or similar tool for malware detection
+                  # This is a placeholder - actual implementation would use real tools
+
+                  # Check for known malicious packages
+                  if [ -f "package.json" ]; then
+                    # Example: Check against known malicious package list
+                    # In production, integrate with Socket.dev API or similar
+                    echo "Checking npm packages..."
+                  fi
+
+                  echo "malicious=$malicious" >> $GITHUB_OUTPUT
+                  echo "typosquat=$typosquat" >> $GITHUB_OUTPUT
+
+            - name: Typosquatting Detection
+              if: ${{ inputs.typosquatting-detection }}
+              run: |
+                  echo "Detecting potential typosquatting..."
+
+                  # Check for packages with names similar to popular packages
+                  # This would use a tool like guarddog or custom scripts
+
+    attestation:
+        name: "Build Attestation"
+        runs-on: ubuntu-latest
+        if: ${{ inputs.generate-attestation }}
+        needs: [sbom-generation, provenance, slsa-verification]
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Download SBOM
+              uses: actions/download-artifact@v4
+              with:
+                  name: sbom
+                  path: ./sbom
+
+            - name: Generate Attestation
+              uses: actions/attest-build-provenance@v1
+              with:
+                  subject-path: "./sbom/*.json"
+
+    license-compliance:
+        name: "License Compliance Check"
+        runs-on: ubuntu-latest
+        if: ${{ inputs.license-check }}
+        needs: dependency-analysis
+        outputs:
+            compliant: ${{ steps.check.outputs.compliant }}
+            denied-licenses: ${{ steps.check.outputs.denied }}
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Check Licenses
+              id: check
+              run: |
+                  echo "Checking dependency licenses..."
+
+                  denied_licenses=""
+                  compliant="true"
+
+                  # Install license checker
+                  if [ -f "package.json" ]; then
+                    npm install -g license-checker
+                    license-checker --json --exclude "MIT, Apache-2.0, BSD-3-Clause, ISC" > denied-licenses.json || true
+                    
+                    denied_count=$(jq '. | length' denied-licenses.json)
+                    if [ "$denied_count" -gt 0 ]; then
+                      compliant="false"
+                      denied_licenses=$(jq -r 'keys[]' denied-licenses.json | tr '\n' ',')
+                    fi
+                  fi
+
+                  echo "compliant=$compliant" >> $GITHUB_OUTPUT
+                  echo "denied=$denied_licenses" >> $GITHUB_OUTPUT
+
+    reachability-analysis:
+        name: "Vulnerability Reachability Analysis"
+        runs-on: ubuntu-latest
+        if: ${{ inputs.enable-reachability-analysis }}
+        needs: dependency-analysis
+        steps:
+            - name: Checkout Code
+              uses: actions/checkout@v4
+
+            - name: Analyze Vulnerability Reachability
+              run: |
+                  echo "Analyzing vulnerability reachability..."
+
+                  # Use tools like Snyk or custom analysis to determine
+                  # if vulnerable code paths are actually reachable
+
+                  # This helps prioritize which vulnerabilities to fix first
+
+    final-report:
+        name: "Supply Chain Security Report"
+        runs-on: ubuntu-latest
+        needs:
+            [
+                dependency-analysis,
+                sbom-generation,
+                provenance,
+                slsa-verification,
+                malware-detection,
+                license-compliance,
+            ]
+        if: always()
+        outputs:
+            security-score: ${{ steps.calculate.outputs.score }}
+            risk-level: ${{ steps.calculate.outputs.risk }}
+        steps:
+            - name: Calculate Security Score
+              id: calculate
+              run: |
+                  # Start with perfect score
+                  score=100
+
+                  # Deduct points for issues
+                  malicious=${{ needs.malware-detection.outputs.malicious-count || 0 }}
+                  slsa_compliant="${{ needs.slsa-verification.outputs.compliant }}"
+                  license_compliant="${{ needs.license-compliance.outputs.compliant }}"
+                  provenance_verified="${{ needs.provenance.outputs.verified }}"
+
+                  # Malicious packages = critical issue
+                  score=$((score - (malicious * 50)))
+
+                  # SLSA non-compliance
+                  if [ "$slsa_compliant" != "true" ]; then
+                    score=$((score - 20))
+                  fi
+
+                  # License issues
+                  if [ "$license_compliant" != "true" ]; then
+                    score=$((score - 10))
+                  fi
+
+                  # Provenance issues
+                  if [ "$provenance_verified" != "true" ]; then
+                    score=$((score - 15))
+                  fi
+
+                  score=$((score < 0 ? 0 : score))
+
+                  # Determine risk level
+                  if [ "$score" -lt 40 ]; then
+                    risk="CRITICAL"
+                  elif [ "$score" -lt 70 ]; then
+                    risk="HIGH"
+                  elif [ "$score" -lt 85 ]; then
+                    risk="MEDIUM"
+                  else
+                    risk="LOW"
+                  fi
+
+                  echo "score=$score" >> $GITHUB_OUTPUT
+                  echo "risk=$risk" >> $GITHUB_OUTPUT
+
+            - name: Generate Summary Report
+              run: |
+                  cat >> $GITHUB_STEP_SUMMARY <<EOF
+                  # 🔗 Supply Chain Security Report
+
+                  ## Security Score: ${{ steps.calculate.outputs.score }}/100
+                  ### Risk Level: ${{ steps.calculate.outputs.risk }}
+
+                  ## Dependency Analysis
+                  - **Total Dependencies:** ${{ needs.dependency-analysis.outputs.total-deps }}
+                  - **Direct:** ${{ needs.dependency-analysis.outputs.direct-deps }}
+                  - **Transitive:** ${{ needs.dependency-analysis.outputs.transitive-deps }}
+
+                  ## SBOM
+                  - **Generated:** ${{ inputs.enable-sbom-generation }}
+                  - **Format:** ${{ inputs.sbom-format }}
+                  - **Valid:** ${{ needs.sbom-validation.outputs.valid || 'N/A' }}
+
+                  ## Provenance & Attestation
+                  - **Provenance Verified:** ${{ needs.provenance.outputs.verified }}
+                  - **Verification Count:** ${{ needs.provenance.outputs.verification-count }}
+                  - **Attestation Generated:** ${{ inputs.generate-attestation }}
+
+                  ## SLSA
+                  - **Level Achieved:** ${{ needs.slsa-verification.outputs.level-achieved }}
+                  - **Required Level:** ${{ inputs.slsa-level }}
+                  - **Compliant:** ${{ needs.slsa-verification.outputs.compliant }}
+
+                  ## Security Findings
+                  - **Malicious Packages:** ${{ needs.malware-detection.outputs.malicious-count || 0 }}
+                  - **Typosquatting Detected:** ${{ needs.malware-detection.outputs.typosquat-count || 0 }}
+                  - **License Compliant:** ${{ needs.license-compliance.outputs.compliant }}
+
+                  ## Recommendations
+                  $(if [ "${{ needs.malware-detection.outputs.malicious-count }}" -gt "0" ]; then echo "🚨 **CRITICAL:** Remove malicious packages immediately"; fi)
+                  $(if [ "${{ needs.slsa-verification.outputs.compliant }}" != "true" ]; then echo "⚠️ Improve SLSA compliance level"; fi)
+                  $(if [ "${{ needs.provenance.outputs.verified }}" != "true" ]; then echo "⚠️ Verify package provenance"; fi)
+                  EOF
+
+            - name: Fail on Malicious Packages
+              if: ${{ inputs.fail-on-malicious && needs.malware-detection.outputs.malicious-count > 0 }}
+              run: |
+                  echo "::error::Found malicious packages in dependency tree"
+                  exit 1

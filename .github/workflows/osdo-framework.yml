@@ -1,0 +1,412 @@
+name: OSDO Framework - Complete Security & Compliance Pipeline
+
+on:
+  workflow_call:
+    inputs:
+      # Environment Configuration
+      node-version:
+        description: "Node.js version to use"
+        required: false
+        default: "22"
+        type: string
+      python-version:
+        description: "Python version to use"
+        required: false
+        default: "3.11"
+        type: string
+      java-version:
+        description: "Java version to use"
+        required: false
+        default: "17"
+        type: string
+      go-version:
+        description: "Go version to use"
+        required: false
+        default: "1.21"
+        type: string
+      php-version:
+        description: "PHP version to use"
+        required: false
+        default: "8.2"
+        type: string
+
+      # Pipeline Control
+      run-tests:
+        description: "Run tests and quality checks"
+        required: false
+        default: true
+        type: boolean
+      run-security-scan:
+        description: "Run comprehensive security scanning"
+        required: false
+        default: true
+        type: boolean
+      run-compliance-report:
+        description: "Generate compliance report"
+        required: false
+        default: true
+        type: boolean
+
+      # Quality Thresholds
+      test-coverage-threshold:
+        description: "Minimum test coverage percentage"
+        required: false
+        default: "80"
+        type: string
+      fail-on-high-security:
+        description: "Fail pipeline on high severity vulnerabilities"
+        required: false
+        default: true
+        type: boolean
+
+      # Test Configuration
+      enable-unit-tests:
+        description: "Enable unit tests"
+        required: false
+        default: true
+        type: boolean
+      enable-integration-tests:
+        description: "Enable integration tests"
+        required: false
+        default: true
+        type: boolean
+      enable-e2e-tests:
+        description: "Enable end-to-end tests"
+        required: false
+        default: false
+        type: boolean
+
+      # Security Scan Configuration
+      enable-sca:
+        description: "Enable Software Composition Analysis (SCA)"
+        required: false
+        default: true
+        type: boolean
+      enable-sast:
+        description: "Enable Static Application Security Testing (SAST)"
+        required: false
+        default: true
+        type: boolean
+      enable-secrets:
+        description: "Enable Secrets Detection"
+        required: false
+        default: true
+        type: boolean
+      enable-container-scan:
+        description: "Enable container security scanning"
+        required: false
+        default: false
+        type: boolean
+
+      # Build Security Configuration
+      enable-build-security:
+        description: "Enable secure build and SBOM generation"
+        required: false
+        default: true
+        type: boolean
+      sbom-format:
+        description: "SBOM format (json, xml, both)"
+        required: false
+        default: "both"
+        type: string
+      build-command:
+        description: "Build command to execute"
+        required: false
+        default: "npm run build"
+        type: string
+
+      # Quality Gate Configuration
+      enable-quality-gate:
+        description: "Enable security quality gate"
+        required: false
+        default: true
+        type: boolean
+      critical-threshold:
+        description: "Maximum allowed critical vulnerabilities"
+        required: false
+        default: "0"
+        type: string
+      high-threshold:
+        description: "Maximum allowed high vulnerabilities"
+        required: false
+        default: "5"
+        type: string
+      secrets-threshold:
+        description: "Maximum allowed secrets"
+        required: false
+        default: "0"
+        type: string
+
+      # Report Configuration
+      report-format:
+        description: "Compliance report format (markdown, html, json)"
+        required: false
+        default: "markdown"
+        type: string
+
+    outputs:
+      compliance-status:
+        description: "Overall OSDO compliance status"
+        value: ${{ jobs.compliance-report.outputs.compliance-status }}
+      test-coverage:
+        description: "Test coverage percentage"
+        value: ${{ jobs.test-quality.outputs.coverage-percentage }}
+      vulnerabilities-found:
+        description: "Total vulnerabilities found"
+        value: ${{ jobs.security-scan.outputs.vulnerabilities-found }}
+      quality-gate-status:
+        description: "Security quality gate status"
+        value: ${{ jobs.security-quality-gate.outputs.gate-status }}
+      build-verification:
+        description: "Build verification status"
+        value: ${{ jobs.build-security.outputs.build-status }}
+
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+
+concurrency:
+  group: "osdo-${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    name: "Setup OSDO Environment"
+    runs-on: ubuntu-latest
+    outputs:
+      results-dir: ${{ steps.osdo-setup.outputs.results-dir }}
+      cache-key: ${{ steps.osdo-setup.outputs.cache-key }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup OSDO Environment
+        id: osdo-setup
+        # Action pública (repo propio / Marketplace-friendly)
+        uses: opensecdevops/osdo-setup-osdo@v1
+        with:
+          node-version: ${{ inputs.node-version }}
+          python-version: ${{ inputs.python-version }}
+          java-version: ${{ inputs.java-version }}
+          go-version: ${{ inputs.go-version }}
+          php-version: ${{ inputs.php-version }}
+          setup-docker: ${{ inputs.enable-container-scan }}
+
+      - name: Upload Results Directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: osdo-results
+          path: ${{ steps.osdo-setup.outputs.results-dir }}
+          if-no-files-found: warn
+
+  test-quality:
+    name: "Test & Quality Gate"
+    runs-on: ubuntu-latest
+    needs: setup
+    if: ${{ inputs.run-tests }}
+    outputs:
+      test-results: ${{ steps.quality-gate.outputs.test-results }}
+      coverage-percentage: ${{ steps.quality-gate.outputs.coverage-percentage }}
+      quality-score: ${{ steps.quality-gate.outputs.quality-score }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Results Directory
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: osdo-results
+          path: ${{ needs.setup.outputs.results-dir }}
+
+      - name: Execute Quality Gate
+        id: quality-gate
+        # Action pública
+        uses: opensecdevops/osdo-test-quality@v1
+        with:
+          results-dir: ${{ needs.setup.outputs.results-dir }}
+          test-coverage-threshold: ${{ inputs.test-coverage-threshold }}
+          enable-unit-tests: ${{ inputs.enable-unit-tests }}
+          enable-integration-tests: ${{ inputs.enable-integration-tests }}
+          enable-e2e-tests: ${{ inputs.enable-e2e-tests }}
+          enable-code-quality: true
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: ${{ steps.quality-gate.outputs.test-results }}
+
+  security-scan:
+    name: "Security Scan"
+    needs: setup
+    if: ${{ inputs.run-security-scan }}
+    runs-on: ubuntu-latest
+    outputs:
+      sarif-files: ${{ steps.scan.outputs.sarif-files }}
+      vulnerabilities-found: ${{ steps.scan.outputs.vulnerabilities-found }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Results Directory
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: osdo-results
+          path: ${{ needs.setup.outputs.results-dir }}
+
+      - name: Run Security Scans
+        id: scan
+        # Action pública
+        uses: opensecdevops/osdo-security-scan@v1
+        with:
+          results-dir: ${{ needs.setup.outputs.results-dir }}
+          enable-sast: ${{ inputs.enable-sast }}
+          enable-sca: ${{ inputs.enable-sca }}
+          enable-secrets: ${{ inputs.enable-secrets }}
+
+      - name: Upload SARIF files
+        if: steps.scan.outputs.sarif-files != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif-files }}
+          category: "osdo-scan"
+
+  build-security:
+    name: "Build Security & SBOM"
+    needs: [setup, security-scan]
+    if: ${{ inputs.enable-build-security }}
+    runs-on: ubuntu-latest
+    outputs:
+      build-status: ${{ steps.build.outputs.build-status }}
+      sbom-files: ${{ steps.build.outputs.sbom-files }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Results Directory
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: osdo-results
+          path: ${{ needs.setup.outputs.results-dir }}
+
+      - name: Run Build Security
+        id: build
+        # Action pública
+        uses: opensecdevops/osdo-build-security@v1
+        with:
+          sbom-format: ${{ inputs.sbom-format }}
+          build-command: ${{ inputs.build-command }}
+
+  security-quality-gate:
+    name: "Security Quality Gate"
+    needs: [test-quality, security-scan]
+    if: ${{ inputs.enable-quality-gate }}
+    runs-on: ubuntu-latest
+    outputs:
+      gate-status: ${{ steps.gate.outputs.gate-status }}
+    steps:
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Run Quality Gate
+        id: gate
+        # ✅ Action pública
+        uses: opensecdevops/osdo-security-quality-gate@v1
+        with:
+          coverage-threshold: ${{ inputs.test-coverage-threshold }}
+          critical-threshold: ${{ inputs.critical-threshold }}
+          high-threshold: ${{ inputs.high-threshold }}
+          secrets-threshold: ${{ inputs.secrets-threshold }}
+
+  compliance-report:
+    name: "Compliance Report"
+    needs: [security-quality-gate, build-security]
+    if: ${{ inputs.run-compliance-report }}
+    runs-on: ubuntu-latest
+    outputs:
+      compliance-status: ${{ steps.report.outputs.compliance-status }}
+      report-path: ${{ steps.report.outputs.report-path }}
+    steps:
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate Compliance Report
+        id: report
+        # Action pública
+        uses: opensecdevops/osdo-compliance-report@v1
+        with:
+          artifacts-path: "artifacts"
+          report-format: ${{ inputs.report-format }}
+          fail-on-high: ${{ inputs.fail-on-high-security }}
+
+  final-security-gate:
+    name: "Final Security Gate"
+    needs:
+      [
+        test-quality,
+        security-scan,
+        build-security,
+        security-quality-gate,
+        compliance-report,
+      ]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Evaluate Final Security Gate
+        run: |
+          compliance_status="${{ needs.compliance-report.outputs.compliance-status }}"
+          quality_gate_status="${{ needs.security-quality-gate.outputs.gate-status }}"
+          vulnerabilities="${{ needs.security-scan.outputs.vulnerabilities-found }}"
+          coverage="${{ needs.test-quality.outputs.coverage-percentage }}"
+
+          echo "OSDO Final Security Gate Results:"
+          echo "===================================="
+          echo "Compliance Status: ${compliance_status:-N/A}"
+          echo "Quality Gate: ${quality_gate_status:-N/A}"
+          echo "Vulnerabilities Found: ${vulnerabilities:-N/A}"
+          echo "Test Coverage: ${coverage:-N/A}%"
+          echo "===================================="
+
+          # Expectations based on toggles (fail closed if expected output is missing)
+          if [ "${{ inputs.run-compliance-report }}" = "true" ] && [ -z "$compliance_status" ]; then
+            echo "::error::Compliance report was expected but produced no status"
+            exit 1
+          fi
+          if [ "${{ inputs.enable-quality-gate }}" = "true" ] && [ -z "$quality_gate_status" ]; then
+            echo "::error::Quality gate was expected but produced no status"
+            exit 1
+          fi
+          if [ "${{ inputs.run-security-scan }}" = "true" ] && [ -z "$vulnerabilities" ]; then
+            echo "::error::Security scan was expected but produced no results"
+            exit 1
+          fi
+          if [ "${{ inputs.run-tests }}" = "true" ] && [ -z "$coverage" ]; then
+            echo "::error::Tests were expected but produced no coverage"
+            exit 1
+          fi
+
+          # Determine overall status
+          if [ "$compliance_status" = "NON_COMPLIANT" ] || [ "$quality_gate_status" = "FAILED" ]; then
+            echo "::error::OSDO Final Security Gate FAILED"
+            echo "Pipeline failed security and compliance checks"
+            exit 1
+          elif [ "$compliance_status" = "PARTIALLY_COMPLIANT" ] || [ "$quality_gate_status" = "WARNING" ]; then
+            echo "::warning::OSDO Final Security Gate WARNING"
+            echo "Pipeline passed with warnings"
+          else
+            echo "::notice::OSDO Final Security Gate PASSED"
+            echo "Pipeline fully compliant and secure"
+          fi
