@@ -1,3 +1,93 @@
+# 🔒 OSDO Workflows — Reusable Security Workflows for GitHub Actions
+
+> **10 composable, reusable GitHub Actions workflows** covering the full application security spectrum — from SAST and SCA to container scanning, IaC analysis, DAST, API security, mobile security, cloud security, license compliance, and continuous monitoring.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+## What Is This?
+
+`osdo-workflows` is a library of reusable [GitHub Actions reusable workflows](https://docs.github.com/en/actions/sharing-automations/reusing-workflows) maintained by the [OpenSecDevOps](https://github.com/opensecdevops) community. Each workflow targets a specific security domain and is designed to be called from any repository with a single `uses:` reference — no copy-paste, no drift.
+
+Compose them individually or combine multiple workflows into a comprehensive security pipeline tailored to your stack.
+
+## Workflow Catalog
+
+| # | Workflow File | Purpose |
+|---|---------------|---------|
+| 1 | `osdo-framework.yml` | **Complete CI/CD security pipeline** — tests, SAST, SCA, SBOM generation, and compliance reporting in a single call |
+| 2 | `osdo-container-security.yml` | **Container image scanning** — Trivy, Grype, Dockerfile linting, SBOM (SPDX/CycloneDX), and Cosign image signing |
+| 3 | `osdo-iac-security.yml` | **Infrastructure-as-Code security** — Checkov, KICS, tfsec, Terrascan; covers Terraform, Kubernetes, CloudFormation, Helm, and Ansible |
+| 4 | `osdo-supply-chain.yml` | **Supply chain security** — SBOM generation & validation, SLSA provenance (Levels 1–4), malware detection, and typosquatting checks |
+| 5 | `osdo-continuous-monitoring.yml` | **Scheduled security monitoring** — recurring vulnerability re-scans, trend analysis, multi-channel alerts, and automatic GitHub Issues |
+| 6 | `osdo-dast.yml` | **Dynamic Application Security Testing** — OWASP ZAP scans (baseline/full/API), SSL/TLS checks, and security header validation |
+| 7 | `osdo-api-security.yml` | **API security testing** — OpenAPI/Swagger spec validation, OWASP API Top 10, auth testing, rate-limit verification, and API fuzzing |
+| 8 | `osdo-mobile-security.yml` | **Mobile application security** — OWASP MASVS (L1/L2) for Android, iOS, React Native, and Flutter; SSL pinning and obfuscation checks |
+| 9 | `osdo-cloud-security.yml` | **Multi-cloud security posture** — AWS, Azure, and GCP resource scanning; IAM analysis, CIS Benchmarks, and public-exposure detection |
+| 10 | `osdo-license-compliance.yml` | **License compliance enforcement** — policy allow/deny lists, copyleft detection, compatibility checks, and NOTICE file generation |
+
+## Quick Start
+
+Reference any workflow with `uses:` in your own repository's workflow file.
+
+**Simplest setup — full security pipeline in one call:**
+
+```yaml
+# .github/workflows/security.yml
+name: Security Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  security:
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-framework.yml@v2
+    secrets: inherit
+```
+
+**Composing individual security domains:**
+
+```yaml
+# .github/workflows/security.yml
+name: Security Pipeline
+
+on: [push, pull_request]
+
+jobs:
+  container-scan:
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-container-security.yml@v2
+    with:
+      image-name: my-app
+      image-tag: ${{ github.sha }}
+      enable-sbom: true
+      enable-signing: true
+      critical-threshold: "0"
+
+  iac-scan:
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-iac-security.yml@v2
+    with:
+      iac-type: terraform
+      iac-directory: ./infra
+      compliance-frameworks: "cis,nist"
+
+  supply-chain:
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-supply-chain.yml@v2
+    with:
+      package-manager: npm
+      slsa-level: "2"
+      enable-sbom-generation: true
+```
+
+> **Tip — pin to a specific tag in production:** use `@v2.2.0` instead of `@v2` to prevent unexpected changes from affecting your pipeline.
+
+## Full Documentation
+
+📖 [OSDO Documentation Hub](../README.md) — complete configuration reference, integration patterns, and best practices.
+
+---
+
 # 🔒 OSDO Workflows - Flujos de Trabajo de Seguridad Reutilizables
 
 Colección integral de flujos de trabajo especializados y reutilizables de GitHub Actions para seguridad, cumplimiento normativo y garantía de calidad en diversas tecnologías.
