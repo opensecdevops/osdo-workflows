@@ -46,6 +46,11 @@ on:
         required: false
         default: true
         type: boolean
+      enforce-compliance:
+        description: "Fail the final gate when the compliance verdict is NON_COMPLIANT. Set false only to test the pipeline plumbing on a repository without code. Missing outputs and unknown statuses still fail."
+        required: false
+        default: true
+        type: boolean
 
       # Quality Thresholds
       test-coverage-threshold:
@@ -160,6 +165,9 @@ on:
       build-verification:
         description: "Build verification status"
         value: ${{ jobs.build-security.outputs.build-status }}
+      security-score:
+        description: "Security score from the quality gate (0-100)"
+        value: ${{ jobs.security-quality-gate.outputs.security-score }}
 
 permissions:
   contents: read
@@ -513,6 +521,7 @@ jobs:
           BUILD_RESULT: ${{ needs.build-security.result }}
           GATE_RESULT: ${{ needs.security-quality-gate.result }}
           COMPLIANCE_RESULT: ${{ needs.compliance-report.result }}
+          ENFORCE_COMPLIANCE: ${{ inputs.enforce-compliance }}
         run: |
           compliance_status="${{ needs.compliance-report.outputs.compliance-status }}"
           quality_gate_status="${{ needs.security-quality-gate.outputs.gate-status }}"
@@ -560,14 +569,35 @@ jobs:
             exit 1
           fi
 
+          # Unknown verdicts fail closed.
+          case "$compliance_status" in
+            ""|COMPLIANT|PARTIALLY_COMPLIANT|NON_COMPLIANT) ;;
+            *) echo "::error::Unknown compliance status '$compliance_status'"; exit 1 ;;
+          esac
+          case "$quality_gate_status" in
+            ""|PASSED|WARNING|FAILED) ;;
+            *) echo "::error::Unknown quality gate status '$quality_gate_status'"; exit 1 ;;
+          esac
+
           # Determine overall status
-          if [ "$compliance_status" = "NON_COMPLIANT" ] || [ "$quality_gate_status" = "FAILED" ]; then
-            echo "::error::OSDO Final Security Gate FAILED"
-            echo "Pipeline failed security and compliance checks"
+          if [ "$quality_gate_status" = "FAILED" ]; then
+            echo "::error::OSDO Final Security Gate FAILED: quality gate FAILED"
+            echo "Pipeline failed security checks"
             exit 1
-          elif [ "$compliance_status" = "PARTIALLY_COMPLIANT" ] || [ "$quality_gate_status" = "WARNING" ]; then
+          fi
+          if [ "$compliance_status" = "NON_COMPLIANT" ]; then
+            if [ "$ENFORCE_COMPLIANCE" = "true" ]; then
+              echo "::error::OSDO Final Security Gate FAILED: compliance NON_COMPLIANT"
+              echo "Pipeline failed compliance checks"
+              exit 1
+            fi
+            echo "::warning::Compliance verdict NON_COMPLIANT is not enforced (enforce-compliance: false)"
+          fi
+          if [ "$compliance_status" = "PARTIALLY_COMPLIANT" ] || [ "$quality_gate_status" = "WARNING" ]; then
             echo "::warning::OSDO Final Security Gate WARNING"
             echo "Pipeline passed with warnings"
+          elif [ "$compliance_status" = "NON_COMPLIANT" ]; then
+            echo "::notice::OSDO Final Security Gate PASSED (compliance verdict not enforced)"
           else
             echo "::notice::OSDO Final Security Gate PASSED"
             echo "Pipeline fully compliant and secure"

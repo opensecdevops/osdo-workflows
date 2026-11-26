@@ -65,3 +65,38 @@ jobs:
       enable-build-security: true
       build-command: "echo osdo-self-test no-op build"
       run-compliance-report: true
+      # This repo has no code, so its compliance verdict is NON_COMPLIANT by design. Plumbing is
+      # asserted by the assert-outputs job below instead. Real callers keep the default (true).
+      enforce-compliance: false
+
+  assert-outputs:
+    name: Assert framework outputs are well-formed
+    needs: framework
+    if: ${{ always() && needs.framework.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      COMPLIANCE_STATUS: ${{ needs.framework.outputs.compliance-status }}
+      SECURITY_SCORE: ${{ needs.framework.outputs.security-score }}
+      VULNERABILITIES_FOUND: ${{ needs.framework.outputs.vulnerabilities-found }}
+      QUALITY_GATE_STATUS: ${{ needs.framework.outputs.quality-gate-status }}
+      TEST_COVERAGE: ${{ needs.framework.outputs.test-coverage }}
+    steps:
+      - name: Assert outputs exist and are well-formed
+        run: |
+          fail=0
+          check() {
+            # $1 name, $2 value, $3 extended regex
+            if [[ ! "$2" =~ $3 ]]; then
+              echo "::error::$1 is missing or malformed ('$2')"
+              fail=1
+            else
+              echo "$1 = $2"
+            fi
+          }
+          check compliance-status "$COMPLIANCE_STATUS" '^(COMPLIANT|PARTIALLY_COMPLIANT|NON_COMPLIANT)$'
+          check security-score "$SECURITY_SCORE" '^[0-9]+$'
+          check vulnerabilities-found "$VULNERABILITIES_FOUND" '^[0-9]+$'
+          check quality-gate-status "$QUALITY_GATE_STATUS" '^(PASSED|WARNING|FAILED)$'
+          check test-coverage "$TEST_COVERAGE" '^[0-9]+([.][0-9]+)?$'
+          exit $fail
