@@ -46,6 +46,11 @@ jobs:
       security-events: write
     uses: ./.github/workflows/osdo-framework.yml
     with:
+      # This repo has no root package-lock.json or requirements.txt. setup-python always caches
+      # pip, and setup-node caches **/package-lock.json, so both fail on osdo-actions v2.0.0.
+      # Turning the toolchains off skips setup and its cache. Real callers with lockfiles keep defaults.
+      node-version: ${{ 'false' }}
+      python-version: ${{ 'false' }}
       run-tests: true
       enable-unit-tests: false
       enable-integration-tests: false

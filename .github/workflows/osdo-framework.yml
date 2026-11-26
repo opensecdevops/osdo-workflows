@@ -487,6 +487,7 @@ jobs:
     name: "Final Security Gate"
     needs:
       [
+        setup,
         test-quality,
         security-scan,
         build-security,
@@ -497,6 +498,13 @@ jobs:
     if: always()
     steps:
       - name: Evaluate Final Security Gate
+        env:
+          SETUP_RESULT: ${{ needs.setup.result }}
+          TEST_RESULT: ${{ needs.test-quality.result }}
+          SCAN_RESULT: ${{ needs.security-scan.result }}
+          BUILD_RESULT: ${{ needs.build-security.result }}
+          GATE_RESULT: ${{ needs.security-quality-gate.result }}
+          COMPLIANCE_RESULT: ${{ needs.compliance-report.result }}
         run: |
           compliance_status="${{ needs.compliance-report.outputs.compliance-status }}"
           quality_gate_status="${{ needs.security-quality-gate.outputs.gate-status }}"
@@ -511,21 +519,36 @@ jobs:
           echo "Test Coverage: ${coverage:-N/A}%"
           echo "===================================="
 
-          # Expectations based on toggles (fail closed if expected output is missing)
-          if [ "${{ inputs.run-compliance-report }}" = "true" ] && [ -z "$compliance_status" ]; then
-            echo "::error::Compliance report was expected but produced no status"
+          # A required job that failed or was cancelled fails the pipeline, whatever the toggles say.
+          for result in "$SETUP_RESULT" "$TEST_RESULT" "$SCAN_RESULT" "$BUILD_RESULT" "$GATE_RESULT" "$COMPLIANCE_RESULT"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "::error::A required OSDO job finished with result '$result'"
+              exit 1
+            fi
+          done
+
+          # Expectations follow the toggles that actually reach each output. A job skipped by a
+          # toggle (directly or through its needs) is not expected to report. Defaults keep every
+          # check on, so real callers still fail closed.
+          tests_on="${{ inputs.run-tests }}"
+          scan_on="${{ inputs.run-security-scan }}"
+          build_on="${{ inputs.enable-build-security }}"
+          gate_on="${{ inputs.enable-quality-gate }}"
+          report_on="${{ inputs.run-compliance-report }}"
+          if [ "$tests_on" = "true" ] && [ -z "$coverage" ]; then
+            echo "::error::Tests were expected but produced no coverage"
             exit 1
           fi
-          if [ "${{ inputs.enable-quality-gate }}" = "true" ] && [ -z "$quality_gate_status" ]; then
-            echo "::error::Quality gate was expected but produced no status"
-            exit 1
-          fi
-          if [ "${{ inputs.run-security-scan }}" = "true" ] && [ -z "$vulnerabilities" ]; then
+          if [ "$scan_on" = "true" ] && [ -z "$vulnerabilities" ]; then
             echo "::error::Security scan was expected but produced no results"
             exit 1
           fi
-          if [ "${{ inputs.run-tests }}" = "true" ] && [ -z "$coverage" ]; then
-            echo "::error::Tests were expected but produced no coverage"
+          if [ "$tests_on" = "true" ] && [ "$scan_on" = "true" ] && [ "$gate_on" = "true" ] && [ -z "$quality_gate_status" ]; then
+            echo "::error::Quality gate was expected but produced no status"
+            exit 1
+          fi
+          if [ "$report_on" = "true" ] && [ "$tests_on" = "true" ] && [ "$scan_on" = "true" ] && [ "$build_on" = "true" ] && [ "$gate_on" = "true" ] && [ -z "$compliance_status" ]; then
+            echo "::error::Compliance report was expected but produced no status"
             exit 1
           fi
 
