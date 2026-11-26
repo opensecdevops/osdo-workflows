@@ -64,6 +64,7 @@ jobs:
     with:
       image-name: my-app
       image-tag: ${{ github.sha }}
+      image-digest: ${{ needs.build.outputs.digest }}  # required: digest pushed by an earlier job
       enable-sbom: true
       enable-signing: true
       critical-threshold: "0"
@@ -164,6 +165,7 @@ uses: opensecdevops/osdo-workflows/.github/workflows/osdo-container-security.yml
 with:
   image-name: my-app
   image-tag: v1.0.0
+  image-digest: ${{ needs.build.outputs.digest }}  # required: digest pushed by an earlier job
   scanners: "trivy,grype"
   enable-sbom: true
   enable-signing: true

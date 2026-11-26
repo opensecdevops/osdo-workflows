@@ -206,6 +206,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: setup
     if: ${{ inputs.run-tests }}
+    env:
+      OSDO_RESULTS_DIR: .osdo/results
     outputs:
       test-results: ${{ steps.quality-gate.outputs.test-results }}
       coverage-percentage: ${{ steps.quality-gate.outputs.coverage-percentage }}
@@ -213,6 +215,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Prepare results directory
+        run: mkdir -p "$OSDO_RESULTS_DIR"
 
       - name: Execute Quality Gate
         id: quality-gate
@@ -224,14 +229,19 @@ jobs:
           enable-e2e-tests: ${{ inputs.enable-e2e-tests }}
           enable-code-quality: true
 
+      - name: Save test summary
+        if: always()
+        env:
+          TEST_SUMMARY: ${{ steps.quality-gate.outputs.test-results }}
+        run: printf '%s\n' "$TEST_SUMMARY" > "$OSDO_RESULTS_DIR/test-summary.txt"
+
       - name: Upload test results
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: test-results
-          # osdo-test-quality v2.0.0 outputs a summary string, not a file path.
-          # Pre-existing wiring gap, not a broken reference; see HOL-265 report.
-          path: ${{ steps.quality-gate.outputs.test-results }}
+          path: .osdo/results
+          if-no-files-found: warn
 
   security-scan:
     name: "Security Scan"
@@ -240,6 +250,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       vulnerabilities-found: ${{ steps.scan.outputs.vulnerabilities-found }}
+      sast-critical: ${{ steps.scan.outputs.sast-critical }}
+      sast-high: ${{ steps.scan.outputs.sast-high }}
+      sca-critical: ${{ steps.scan.outputs.sca-critical }}
+      sca-high: ${{ steps.scan.outputs.sca-high }}
+      secrets-findings: ${{ steps.scan.outputs.secrets-findings }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -285,6 +300,15 @@ jobs:
         run: |
           num() { case "$1" in ''|*[!0-9]*) echo 0 ;; *) echo "$1" ;; esac; }
           total=$(( $(num "$SAST_CRITICAL") + $(num "$SAST_HIGH") + $(num "$SCA_CRITICAL") + $(num "$SCA_HIGH") + $(num "$SECRETS_FOUND") ))
+          # Raw per-scanner values, empty when that scanner did not run. The quality gate
+          # treats an empty value as a failure for every enabled scanner.
+          {
+            echo "sast-critical=${SAST_CRITICAL}"
+            echo "sast-high=${SAST_HIGH}"
+            echo "sca-critical=${SCA_CRITICAL}"
+            echo "sca-high=${SCA_HIGH}"
+            echo "secrets-findings=${SECRETS_FOUND}"
+          } >> "$GITHUB_OUTPUT"
           echo "vulnerabilities-found=$total" >> "$GITHUB_OUTPUT"
           echo "Findings (SAST crit+high, SCA crit+high, secrets): $total"
 
@@ -345,6 +369,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       gate-status: ${{ steps.gate.outputs.gate-status }}
+      security-score: ${{ steps.enforce.outputs.security-score }}
     steps:
       - name: Download Scan Results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -364,6 +389,61 @@ jobs:
           secrets-threshold: ${{ inputs.secrets-threshold }}
           results-dir: .osdo/results
 
+      - name: Enforce Scanner Thresholds (fail closed)
+        id: enforce
+        env:
+          ENABLE_SAST: ${{ inputs.enable-sast }}
+          ENABLE_SCA: ${{ inputs.enable-sca }}
+          ENABLE_SECRETS: ${{ inputs.enable-secrets }}
+          SAST_CRITICAL: ${{ needs.security-scan.outputs.sast-critical }}
+          SAST_HIGH: ${{ needs.security-scan.outputs.sast-high }}
+          SCA_CRITICAL: ${{ needs.security-scan.outputs.sca-critical }}
+          SCA_HIGH: ${{ needs.security-scan.outputs.sca-high }}
+          SECRETS_FINDINGS: ${{ needs.security-scan.outputs.secrets-findings }}
+          CRITICAL_THRESHOLD: ${{ inputs.critical-threshold }}
+          HIGH_THRESHOLD: ${{ inputs.high-threshold }}
+          SECRETS_THRESHOLD: ${{ inputs.secrets-threshold }}
+        run: |
+          require_count() {
+            # $1 label, $2 value: fail unless the value is a non-negative integer.
+            if [[ ! "$2" =~ ^[0-9]+$ ]]; then
+              echo "::error::$1 result missing or non-numeric ('$2'); failing closed"
+              exit 1
+            fi
+          }
+          critical=0
+          high=0
+          secrets=0
+          if [ "$ENABLE_SAST" = "true" ]; then
+            require_count "SAST critical" "$SAST_CRITICAL"
+            require_count "SAST high" "$SAST_HIGH"
+            critical=$((critical + SAST_CRITICAL))
+            high=$((high + SAST_HIGH))
+          fi
+          if [ "$ENABLE_SCA" = "true" ]; then
+            require_count "SCA critical" "$SCA_CRITICAL"
+            require_count "SCA high" "$SCA_HIGH"
+            critical=$((critical + SCA_CRITICAL))
+            high=$((high + SCA_HIGH))
+          fi
+          if [ "$ENABLE_SECRETS" = "true" ]; then
+            require_count "Secrets" "$SECRETS_FINDINGS"
+            secrets=$SECRETS_FINDINGS
+          fi
+          echo "Scanner totals: critical=$critical high=$high secrets=$secrets"
+          failed=0
+          if [ "$critical" -gt "$CRITICAL_THRESHOLD" ]; then echo "::error::Critical findings $critical exceed threshold $CRITICAL_THRESHOLD"; failed=1; fi
+          if [ "$high" -gt "$HIGH_THRESHOLD" ]; then echo "::error::High findings $high exceed threshold $HIGH_THRESHOLD"; failed=1; fi
+          if [ "$secrets" -gt "$SECRETS_THRESHOLD" ]; then echo "::error::Secrets findings $secrets exceed threshold $SECRETS_THRESHOLD"; failed=1; fi
+          # Framework-defined heuristic (not an OSDO standard): 100 minus 10 per critical,
+          # 5 per high and 10 per secret, floored at 0. Covers the scanners enabled above.
+          score=$((100 - critical * 10 - high * 5 - secrets * 10))
+          if [ "$score" -lt 0 ]; then score=0; fi
+          echo "security-score=$score" >> "$GITHUB_OUTPUT"
+          echo "Security score: $score/100"
+          exit $failed
+
+
   compliance-report:
     name: "Compliance Report"
     needs: [test-quality, security-scan, security-quality-gate, build-security]
@@ -381,6 +461,15 @@ jobs:
           path: .osdo/results
           merge-multiple: true
 
+      - name: Require Security Score
+        env:
+          SECURITY_SCORE: ${{ needs.security-quality-gate.outputs.security-score }}
+        run: |
+          if [[ ! "$SECURITY_SCORE" =~ ^[0-9]+$ ]]; then
+            echo "::error::security-score unavailable: the security scan and quality gate must both run"
+            exit 1
+          fi
+
       - name: Generate Compliance Report
         id: report
         uses: opensecdevops/osdo-actions/actions/osdo-compliance-report@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
@@ -390,6 +479,7 @@ jobs:
           coverage-percentage: ${{ needs.test-quality.outputs.coverage-percentage }}
           build-security-results: ${{ needs.build-security.outputs.build-status }}
           quality-gate-status: ${{ needs.security-quality-gate.outputs.gate-status }}
+          security-score: ${{ needs.security-quality-gate.outputs.security-score }}
           project-name: ${{ github.repository }}
           report-format: ${{ inputs.report-format }}
 
