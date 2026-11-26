@@ -25,7 +25,7 @@ on:
         default: "1.21"
         type: string
       php-version:
-        description: "PHP version to use"
+        description: "PHP version to use (not wired: osdo-setup-env v2.0.0 has no PHP step)"
         required: false
         default: "8.2"
         type: string
@@ -54,7 +54,7 @@ on:
         default: "80"
         type: string
       fail-on-high-security:
-        description: "Fail pipeline on high severity vulnerabilities"
+        description: "Not wired in v2.0.0 of the composite actions; the security quality gate applies critical/high thresholds instead"
         required: false
         default: true
         type: boolean
@@ -179,24 +179,23 @@ jobs:
       cache-key: ${{ steps.osdo-setup.outputs.cache-key }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
       - name: Setup OSDO Environment
         id: osdo-setup
-        # Action pública (repo propio / Marketplace-friendly)
-        uses: opensecdevops/osdo-setup-osdo@v1
+        uses: opensecdevops/osdo-actions/actions/osdo-setup-env@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
           node-version: ${{ inputs.node-version }}
           python-version: ${{ inputs.python-version }}
           java-version: ${{ inputs.java-version }}
           go-version: ${{ inputs.go-version }}
-          php-version: ${{ inputs.php-version }}
           setup-docker: ${{ inputs.enable-container-scan }}
+          results-dir: .osdo/results
 
       - name: Upload Results Directory
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: osdo-results
           path: ${{ steps.osdo-setup.outputs.results-dir }}
@@ -213,21 +212,12 @@ jobs:
       quality-score: ${{ steps.quality-gate.outputs.quality-score }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Download Results Directory
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: osdo-results
-          path: ${{ needs.setup.outputs.results-dir }}
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Execute Quality Gate
         id: quality-gate
-        # Action pública
-        uses: opensecdevops/osdo-test-quality@v1
+        uses: opensecdevops/osdo-actions/actions/osdo-test-quality@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
-          results-dir: ${{ needs.setup.outputs.results-dir }}
           test-coverage-threshold: ${{ inputs.test-coverage-threshold }}
           enable-unit-tests: ${{ inputs.enable-unit-tests }}
           enable-integration-tests: ${{ inputs.enable-integration-tests }}
@@ -235,10 +225,12 @@ jobs:
           enable-code-quality: true
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: test-results
+          # osdo-test-quality v2.0.0 outputs a summary string, not a file path.
+          # Pre-existing wiring gap, not a broken reference; see HOL-265 report.
           path: ${{ steps.quality-gate.outputs.test-results }}
 
   security-scan:
@@ -247,37 +239,76 @@ jobs:
     if: ${{ inputs.run-security-scan }}
     runs-on: ubuntu-latest
     outputs:
-      sarif-files: ${{ steps.scan.outputs.sarif-files }}
       vulnerabilities-found: ${{ steps.scan.outputs.vulnerabilities-found }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
-      - name: Download Results Directory
-        uses: actions/download-artifact@v4
-        continue-on-error: true
+      - name: Run SAST
+        id: sast
+        if: ${{ inputs.enable-sast }}
+        uses: opensecdevops/osdo-actions/actions/osdo-sast@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
-          name: osdo-results
-          path: ${{ needs.setup.outputs.results-dir }}
+          path: .
+          fail-on-finding: "false"
+          results-dir: .osdo/results
 
-      - name: Run Security Scans
+      - name: Run SCA
+        id: sca
+        if: ${{ inputs.enable-sca }}
+        uses: opensecdevops/osdo-actions/actions/osdo-sca@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
+        with:
+          path: .
+          fail-on-critical: "false"
+          fail-on-high: "false"
+          results-dir: .osdo/results
+
+      - name: Run Secrets Scan
+        id: secrets
+        if: ${{ inputs.enable-secrets }}
+        uses: opensecdevops/osdo-actions/actions/osdo-secrets-scan@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
+        with:
+          path: .
+          fail-on-finding: "false"
+          results-dir: .osdo/results
+
+      - name: Aggregate Scan Results
         id: scan
-        # Action pública
-        uses: opensecdevops/osdo-security-scan@v1
-        with:
-          results-dir: ${{ needs.setup.outputs.results-dir }}
-          enable-sast: ${{ inputs.enable-sast }}
-          enable-sca: ${{ inputs.enable-sca }}
-          enable-secrets: ${{ inputs.enable-secrets }}
+        env:
+          SAST_CRITICAL: ${{ steps.sast.outputs.critical-count }}
+          SAST_HIGH: ${{ steps.sast.outputs.high-count }}
+          SCA_CRITICAL: ${{ steps.sca.outputs.critical-count }}
+          SCA_HIGH: ${{ steps.sca.outputs.high-count }}
+          SECRETS_FOUND: ${{ steps.secrets.outputs.findings }}
+        run: |
+          num() { case "$1" in ''|*[!0-9]*) echo 0 ;; *) echo "$1" ;; esac; }
+          total=$(( $(num "$SAST_CRITICAL") + $(num "$SAST_HIGH") + $(num "$SCA_CRITICAL") + $(num "$SCA_HIGH") + $(num "$SECRETS_FOUND") ))
+          echo "vulnerabilities-found=$total" >> "$GITHUB_OUTPUT"
+          echo "Findings (SAST crit+high, SCA crit+high, secrets): $total"
 
-      - name: Upload SARIF files
-        if: steps.scan.outputs.sarif-files != ''
-        uses: github/codeql-action/upload-sarif@v3
+      - name: Upload SAST SARIF
+        if: ${{ steps.sast.outputs.sarif-file != '' }}
+        uses: github/codeql-action/upload-sarif@74c1aea9df7c0f02e9b7bfe4a8935abf2e5e3aa6 # v3.39.5
         with:
-          sarif_file: ${{ steps.scan.outputs.sarif-files }}
-          category: "osdo-scan"
+          sarif_file: ${{ steps.sast.outputs.sarif-file }}
+          category: "osdo-sast"
+
+      - name: Upload Secrets SARIF
+        if: ${{ steps.secrets.outputs.sarif-file != '' }}
+        uses: github/codeql-action/upload-sarif@74c1aea9df7c0f02e9b7bfe4a8935abf2e5e3aa6 # v3.39.5
+        with:
+          sarif_file: ${{ steps.secrets.outputs.sarif-file }}
+          category: "osdo-secrets"
+
+      - name: Upload Scan Results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: security-results
+          path: .osdo/results
+          if-no-files-found: ignore
 
   build-security:
     name: "Build Security & SBOM"
@@ -289,22 +320,23 @@ jobs:
       sbom-files: ${{ steps.build.outputs.sbom-files }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Download Results Directory
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: osdo-results
-          path: ${{ needs.setup.outputs.results-dir }}
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Run Build Security
         id: build
-        # Action pública
-        uses: opensecdevops/osdo-build-security@v1
+        uses: opensecdevops/osdo-actions/actions/osdo-build-security@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
-          sbom-format: ${{ inputs.sbom-format }}
           build-command: ${{ inputs.build-command }}
+          sbom-format: ${{ inputs.sbom-format }}
+          results-dir: .osdo/results
+
+      - name: Upload Build Results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: build-results
+          path: .osdo/results
+          if-no-files-found: ignore
 
   security-quality-gate:
     name: "Security Quality Gate"
@@ -314,43 +346,52 @@ jobs:
     outputs:
       gate-status: ${{ steps.gate.outputs.gate-status }}
     steps:
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+      - name: Download Scan Results
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
         with:
-          path: artifacts
+          pattern: "*-results"
+          path: .osdo/results
+          merge-multiple: true
 
       - name: Run Quality Gate
         id: gate
-        # ✅ Action pública
-        uses: opensecdevops/osdo-security-quality-gate@v1
+        uses: opensecdevops/osdo-actions/actions/osdo-security-gate@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
           coverage-threshold: ${{ inputs.test-coverage-threshold }}
           critical-threshold: ${{ inputs.critical-threshold }}
           high-threshold: ${{ inputs.high-threshold }}
           secrets-threshold: ${{ inputs.secrets-threshold }}
+          results-dir: .osdo/results
 
   compliance-report:
     name: "Compliance Report"
-    needs: [security-quality-gate, build-security]
+    needs: [test-quality, security-scan, security-quality-gate, build-security]
     if: ${{ inputs.run-compliance-report }}
     runs-on: ubuntu-latest
     outputs:
       compliance-status: ${{ steps.report.outputs.compliance-status }}
       report-path: ${{ steps.report.outputs.report-path }}
     steps:
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+      - name: Download Scan Results
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
         with:
-          path: artifacts
+          pattern: "*-results"
+          path: .osdo/results
+          merge-multiple: true
 
       - name: Generate Compliance Report
         id: report
-        # Action pública
-        uses: opensecdevops/osdo-compliance-report@v1
+        uses: opensecdevops/osdo-actions/actions/osdo-compliance-report@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
-          artifacts-path: "artifacts"
+          test-results: ${{ needs.test-quality.outputs.test-results }}
+          security-results: ${{ needs.security-scan.outputs.vulnerabilities-found }}
+          coverage-percentage: ${{ needs.test-quality.outputs.coverage-percentage }}
+          build-security-results: ${{ needs.build-security.outputs.build-status }}
+          quality-gate-status: ${{ needs.security-quality-gate.outputs.gate-status }}
+          project-name: ${{ github.repository }}
           report-format: ${{ inputs.report-format }}
-          fail-on-high: ${{ inputs.fail-on-high-security }}
 
   final-security-gate:
     name: "Final Security Gate"

@@ -1,0 +1,56 @@
+name: OSDO Self-Test
+
+# Catches broken action/workflow references (HOL-265) on every PR.
+# 1. refs:      every uses: resolves at its pinned SHA and every with: input exists.
+# 2. framework: calls ./.github/workflows/osdo-framework.yml. A reusable workflow
+#               always scans its caller's checkout, so this repository is the
+#               fixture; the build is a no-op and integration/e2e tests are off.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refs:
+    name: Validate action and workflow references
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+
+      - name: Install checker dependency
+        run: python3 -m pip install --disable-pip-version-check pyyaml==6.0.2
+
+      - name: Check references
+        run: python3 .github/scripts/check_action_refs.py
+
+  framework:
+    name: Self-test osdo-framework.yml
+    needs: refs
+    # Fork PRs get a read-only token, so the callee's security-events: write cannot be granted.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    uses: ./.github/workflows/osdo-framework.yml
+    with:
+      run-tests: true
+      enable-unit-tests: false
+      enable-integration-tests: false
+      enable-e2e-tests: false
+      test-coverage-threshold: "0"
+      enable-build-security: true
+      build-command: "echo osdo-self-test no-op build"
+      run-compliance-report: true

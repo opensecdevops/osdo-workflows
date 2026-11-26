@@ -66,7 +66,7 @@ on:
 
 jobs:
   security:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-framework.yml@v2
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-framework.yml@<FULL-COMMIT-SHA> # vX.Y.Z
     secrets: inherit
 ```
 
@@ -80,7 +80,7 @@ on: [push, pull_request]
 
 jobs:
   container-scan:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-container-security.yml@v2
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-container-security.yml@<FULL-COMMIT-SHA> # vX.Y.Z
     with:
       image-name: my-app
       image-tag: ${{ github.sha }}
@@ -89,14 +89,14 @@ jobs:
       critical-threshold: "0"
 
   iac-scan:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-iac-security.yml@v2
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-iac-security.yml@<FULL-COMMIT-SHA> # vX.Y.Z
     with:
       iac-type: terraform
       iac-directory: ./infra
       compliance-frameworks: "cis,nist"
 
   supply-chain:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-supply-chain.yml@v2
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-supply-chain.yml@<FULL-COMMIT-SHA> # vX.Y.Z
     with:
       package-manager: npm
       slsa-level: "2"
@@ -112,7 +112,7 @@ jobs:
 **Pipeline completo de seguridad y cumplimiento normativo con todo incluido.**
 
 ```yaml
-uses: opensecdevops/osdo-workflows/.github/workflows/osdo-framework.yml@v2
+uses: opensecdevops/osdo-workflows/.github/workflows/osdo-framework.yml@<FULL-COMMIT-SHA> # vX.Y.Z
 with:
   node-version: '22'
   run-tests: true
@@ -135,7 +135,7 @@ with:
 **Análisis exhaustivo de seguridad y refuerzo de imágenes de contenedores.**
 
 ```yaml
-uses: opensecdevops/osdo-workflows/.github/workflows/osdo-container-security.yml@v2
+uses: opensecdevops/osdo-workflows/.github/workflows/osdo-container-security.yml@<FULL-COMMIT-SHA> # vX.Y.Z
 with:
   image-name: my-app
   image-tag: v1.0.0
@@ -166,7 +166,7 @@ with:
 **Análisis de seguridad para Terraform, Kubernetes, CloudFormation y más.**
 
 ```yaml
-uses: opensecdevops/osdo-workflows/.github/workflows/osdo-iac-security.yml@v2
+uses: opensecdevops/osdo-workflows/.github/workflows/osdo-iac-security.yml@<FULL-COMMIT-SHA> # vX.Y.Z
 with:
   iac-type: terraform
   iac-directory: "./terraform"
@@ -195,7 +195,7 @@ with:
 **Seguridad completa de la cadena de suministro de software y gestión de SBOM.**
 
 ```yaml
-uses: opensecdevops/osdo-workflows/.github/workflows/osdo-supply-chain.yml@v2
+uses: opensecdevops/osdo-workflows/.github/workflows/osdo-supply-chain.yml@<FULL-COMMIT-SHA> # vX.Y.Z
 with:
   package-manager: npm
   enable-sbom-generation: true
@@ -227,7 +227,7 @@ with:
 **Monitoreo de seguridad programado con análisis de tendencias y alertas.**
 
 ```yaml
-uses: opensecdevops/osdo-workflows/.github/workflows/osdo-continuous-monitoring.yml@v2
+uses: opensecdevops/osdo-workflows/.github/workflows/osdo-continuous-monitoring.yml@<FULL-COMMIT-SHA> # vX.Y.Z
 with:
   monitoring-scope: all
   alert-channels: "github,slack"
@@ -255,7 +255,7 @@ with:
 **Pruebas de seguridad de aplicaciones dinámicas para aplicaciones en ejecución.**
 
 ```yaml
-uses: opensecdevops/osdo-workflows/.github/workflows/osdo-dast.yml@v2
+uses: opensecdevops/osdo-workflows/.github/workflows/osdo-dast.yml@<FULL-COMMIT-SHA> # vX.Y.Z
 with:
   target-url: https://app.example.com
   scan-type: full
@@ -284,7 +284,7 @@ with:
 **Pruebas de seguridad especializadas para APIs REST, GraphQL y gRPC.**
 
 ```yaml
-uses: opensecdevops/osdo-workflows/.github/workflows/osdo-api-security.yml@v2
+uses: opensecdevops/osdo-workflows/.github/workflows/osdo-api-security.yml@<FULL-COMMIT-SHA> # vX.Y.Z
 with:
   api-spec-path: "./openapi.yaml"
   api-type: REST
@@ -315,7 +315,7 @@ with:
 **Análisis de seguridad para aplicaciones Android, iOS, React Native y Flutter.**
 
 ```yaml
-uses: opensecdevops/osdo-workflows/.github/workflows/osdo-mobile-security.yml@v2
+uses: opensecdevops/osdo-workflows/.github/workflows/osdo-mobile-security.yml@<FULL-COMMIT-SHA> # vX.Y.Z
 with:
   platform: android
   binary-path: ./app-release.apk
@@ -345,7 +345,7 @@ with:
 **Análisis de seguridad multi-nube para AWS, Azure y GCP.**
 
 ```yaml
-uses: opensecdevops/osdo-workflows/.github/workflows/osdo-cloud-security.yml@v2
+uses: opensecdevops/osdo-workflows/.github/workflows/osdo-cloud-security.yml@<FULL-COMMIT-SHA> # vX.Y.Z
 with:
   cloud-provider: aws
   regions: "us-east-1,us-west-2"
@@ -376,7 +376,7 @@ with:
 **Gestión de licencias de software y aplicación de cumplimiento normativo.**
 
 ```yaml
-uses: opensecdevops/osdo-workflows/.github/workflows/osdo-license-compliance.yml@v2
+uses: opensecdevops/osdo-workflows/.github/workflows/osdo-license-compliance.yml@<FULL-COMMIT-SHA> # vX.Y.Z
 with:
   package-manager: npm
   allowed-licenses: "MIT,Apache-2.0,BSD-3-Clause"
@@ -413,34 +413,34 @@ on: [push, pull_request]
 jobs:
   # Code & Dependencies
   supply-chain:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-supply-chain.yml@v2
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-supply-chain.yml@<FULL-COMMIT-SHA> # vX.Y.Z
     with:
       package-manager: all
       slsa-level: "2"
 
   # Containers
   containers:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-container-security.yml@v2
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-container-security.yml@<FULL-COMMIT-SHA> # vX.Y.Z
     with:
       image-name: ${{ github.repository }}
       enable-signing: true
 
   # Infrastructure
   infrastructure:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-iac-security.yml@v2
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-iac-security.yml@<FULL-COMMIT-SHA> # vX.Y.Z
     with:
       iac-type: all
 
   # Cloud Resources
   cloud:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-cloud-security.yml@v2
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-cloud-security.yml@<FULL-COMMIT-SHA> # vX.Y.Z
     with:
       cloud-provider: aws
       compliance-frameworks: "cis,pci-dss"
 
   # Licenses
   licenses:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-license-compliance.yml@v2
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-license-compliance.yml@<FULL-COMMIT-SHA> # vX.Y.Z
     with:
       fail-on-denied: true
 ```
@@ -456,7 +456,7 @@ on:
 
 jobs:
   monitor:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-continuous-monitoring.yml@v2
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-continuous-monitoring.yml@<FULL-COMMIT-SHA> # vX.Y.Z
     with:
       monitoring-scope: all
       alert-channels: "github,slack"
@@ -474,13 +474,13 @@ on:
 
 jobs:
   api-security:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-api-security.yml@v2
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-api-security.yml@<FULL-COMMIT-SHA> # vX.Y.Z
     with:
       base-url: https://staging.api.example.com
       owasp-api-top-10: true
 
   dast:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-dast.yml@v2
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-dast.yml@<FULL-COMMIT-SHA> # vX.Y.Z
     with:
       target-url: https://staging.example.com
       scan-type: full
@@ -550,17 +550,23 @@ Usa siempre los Secretos de GitHub para datos sensibles:
 ```yaml
 jobs:
   cloud-security:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-cloud-security.yml@v2
+    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-cloud-security.yml@<FULL-COMMIT-SHA> # vX.Y.Z
     secrets: inherit
 ```
 
 ### 3. Fija las Versiones
 
-Usa versiones o etiquetas específicas en producción:
+Fija cada flujo reutilizable a un **SHA de commit completo de 40 caracteres** y deja la etiqueta de la versión en un comentario. Las referencias tipo rama, como `@v2`, son mutables. La etiqueta `v2.0.0` llama a acciones compuestas que no existen (HOL-265), así que usa la primera versión publicada después de esa corrección. Para resolver el SHA de una etiqueta:
+
+```bash
+git ls-remote https://github.com/opensecdevops/osdo-workflows "refs/tags/vX.Y.Z^{}"
+```
 
 ```yaml
-uses: opensecdevops/osdo-workflows/.github/workflows/osdo-framework.yml@v2.2.0
+uses: opensecdevops/osdo-workflows/.github/workflows/osdo-framework.yml@<FULL-COMMIT-SHA> # vX.Y.Z
 ```
+
+Los flujos de aquí llaman a `opensecdevops/osdo-actions` fijado a su commit `v2.0.0`, `cb95b82420cf2982af9669720ce4a4a06bf88090`. Sustituye `vX.Y.Z` y `<FULL-COMMIT-SHA>` por la versión que incluye la corrección de HOL-265.
 
 ### 4. Combina con Criterio
 

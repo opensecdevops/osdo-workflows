@@ -71,13 +71,13 @@ jobs:
       compliance-score: ${{ steps.compliance.outputs.score }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
       - name: Run IaC Security Scan
         id: scan
-        uses: opensecdevops/osdo-actions/actions/osdo-iac-scan@osdo-iac-scan/v1.0.0
+        uses: opensecdevops/osdo-actions/actions/osdo-iac-scan@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
           iac-directory: ${{ inputs.iac-directory }}
           iac-type: ${{ inputs.iac-type }}
@@ -88,7 +88,7 @@ jobs:
           results-dir: .osdo/results
 
       - name: Upload Scan Results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: iac-scan-results

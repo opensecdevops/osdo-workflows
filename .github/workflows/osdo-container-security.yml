@@ -104,10 +104,10 @@ jobs:
             security-score: ${{ steps.calculate-score.outputs.score }}
         steps:
             - name: Checkout Code
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+              uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
             - name: Build Image for Scanning
               run: |
@@ -115,7 +115,7 @@ jobs:
 
             - name: Run Container Security Scan
               id: scan
-              uses: opensecdevops/osdo-actions/actions/osdo-container-scan@osdo-container-scan/v1.0.0
+              uses: opensecdevops/osdo-actions/actions/osdo-container-scan@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
               with:
                   image-name: ${{ inputs.registry }}/${{ inputs.image-name }}
                   image-tag: ${{ inputs.image-tag }}
@@ -128,7 +128,7 @@ jobs:
                   results-dir: .osdo/results
 
             - name: Upload SARIF Results
-              uses: github/codeql-action/upload-sarif@v3
+              uses: github/codeql-action/upload-sarif@74c1aea9df7c0f02e9b7bfe4a8935abf2e5e3aa6 # v3.39.5
               if: always()
               with:
                   sarif_file: .osdo/results/container/trivy.sarif
@@ -136,7 +136,7 @@ jobs:
               continue-on-error: true
 
             - name: Upload Scan Artifacts
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
               if: always()
               with:
                   name: container-scan-results
@@ -195,15 +195,24 @@ jobs:
             signed: ${{ steps.sign.outputs.signed }}
         steps:
             - name: Install Cosign
-              uses: sigstore/cosign-installer@v3
+              uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
 
+            # osdo-actions osdo-sign v2.0.0 is a stub (echoes and writes a .sig path, signs nothing),
+            # so signing is done directly with keyless cosign (OIDC, id-token: write above).
             - name: Sign Container Image
               id: sign
-              uses: opensecdevops/osdo-actions/actions/osdo-sign@osdo-sign/v1.0.0
-              with:
-                  artifact-name: ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}
-                  artifact-type: container
-
-            - name: Verify Signature
+              env:
+                  IMAGE_REF: ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}
               run: |
-                  cosign verify ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}
+                  cosign sign --yes "${IMAGE_REF}"
+                  echo "signed=true" >> "$GITHUB_OUTPUT"
+
+            # Keyless identity is the reusable workflow ref; verify it explicitly.
+            - name: Verify Signature
+              env:
+                  IMAGE_REF: ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}
+              run: |
+                  cosign verify \
+                      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+                      --certificate-identity-regexp '^https://github\.com/opensecdevops/osdo-workflows/\.github/workflows/osdo-container-security\.yml@' \
+                      "${IMAGE_REF}"

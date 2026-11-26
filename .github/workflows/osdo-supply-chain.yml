@@ -152,7 +152,7 @@ jobs:
             transitive-deps: ${{ steps.analyze.outputs.transitive }}
         steps:
             - name: Checkout Code
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
             - name: Analyze Dependencies
               id: analyze
@@ -183,7 +183,7 @@ jobs:
 
             - name: Dependency Review
               if: ${{ inputs.enable-dependency-review && github.event_name == 'pull_request' }}
-              uses: actions/dependency-review-action@v4
+              uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
               with:
                   fail-on-severity: high
                   allow-licenses: MIT, Apache-2.0, BSD-3-Clause, ISC
@@ -198,7 +198,7 @@ jobs:
             sbom-hash: ${{ steps.generate.outputs.sbom-hash }}
         steps:
             - name: Checkout Code
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
             - name: Generate SBOM with Syft
               id: generate
@@ -224,7 +224,7 @@ jobs:
                   echo "sbom-hash=$hash" >> $GITHUB_OUTPUT
 
             - name: Upload SBOM
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
               with:
                   name: sbom
                   path: sbom*.json
@@ -238,7 +238,7 @@ jobs:
             valid: ${{ steps.validate.outputs.valid }}
         steps:
             - name: Checkout Code
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
             - name: Validate SBOM
               id: validate
@@ -265,7 +265,7 @@ jobs:
             verification-count: ${{ steps.verify.outputs.count }}
         steps:
             - name: Checkout Code
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
             - name: Verify Package Provenance
               id: verify
@@ -310,7 +310,7 @@ jobs:
             compliant: ${{ steps.verify.outputs.compliant }}
         steps:
             - name: Checkout Code
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
             - name: Verify SLSA Level
               id: verify
@@ -353,7 +353,7 @@ jobs:
             typosquat-count: ${{ steps.scan.outputs.typosquat }}
         steps:
             - name: Checkout Code
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
             - name: Scan for Malware
               if: ${{ inputs.malware-scan }}
@@ -392,16 +392,16 @@ jobs:
         needs: [sbom-generation, provenance, slsa-verification]
         steps:
             - name: Checkout Code
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
             - name: Download SBOM
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
               with:
                   name: sbom
                   path: ./sbom
 
             - name: Generate Attestation
-              uses: actions/attest-build-provenance@v1
+              uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1.4.4
               with:
                   subject-path: "./sbom/*.json"
 
@@ -415,7 +415,7 @@ jobs:
             denied-licenses: ${{ steps.check.outputs.denied }}
         steps:
             - name: Checkout Code
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
             - name: Check Licenses
               id: check
@@ -447,7 +447,7 @@ jobs:
         needs: dependency-analysis
         steps:
             - name: Checkout Code
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
             - name: Analyze Vulnerability Reachability
               run: |
