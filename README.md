@@ -1,8 +1,11 @@
+English | [Español](README.es.md)
+
 # 🔒 OSDO Workflows — Reusable Security Workflows for GitHub Actions
 
-> **10 composable, reusable GitHub Actions workflows** covering the full application security spectrum — from SAST and SCA to container scanning, IaC analysis, DAST, API security, mobile security, cloud security, license compliance, and continuous monitoring.
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/opensecdevops/osdo-workflows/badge)](https://securityscorecards.dev/viewer/?uri=github.com/opensecdevops/osdo-workflows)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+> **10 composable, reusable GitHub Actions workflows** covering the full application security spectrum — from SAST and SCA to container scanning, IaC analysis, DAST, API security, mobile security, cloud security, license compliance, and continuous monitoring.
 
 ## What Is This?
 
@@ -84,111 +87,54 @@ jobs:
 
 ## Full Documentation
 
-📖 [OSDO Documentation Hub](../README.md) — complete configuration reference, integration patterns, and best practices.
+📖 [OSDO Documentation Hub](https://github.com/opensecdevops/osdo) — complete configuration reference, integration patterns, and best practices.
 
 ---
 
-# 🔒 OSDO Workflows - Flujos de Trabajo de Seguridad Reutilizables
+## Table of Contents
 
-Colección integral de flujos de trabajo especializados y reutilizables de GitHub Actions para seguridad, cumplimiento normativo y garantía de calidad en diversas tecnologías.
-
----
-
-## 📚 Tabla de Contenidos
-
-- [Descripción General](#descripción-general)
-- [Flujos de Trabajo Disponibles](#flujos-de-trabajo-disponibles)
-- [Inicio Rápido](#inicio-rápido)
-- [Catálogo de Flujos de Trabajo](#catálogo-de-flujos-de-trabajo)
-- [Ejemplos de Uso](#ejemplos-de-uso)
-- [Patrones de Integración](#patrones-de-integración)
-- [Guía de Configuración](#guía-de-configuración)
-- [Mejores Prácticas](#mejores-prácticas)
+- [Overview](#overview)
+- [Available Workflows](#available-workflows)
+- [Workflow Reference](#workflow-reference)
+- [Integration Patterns](#integration-patterns)
+- [Configuration Guide](#configuration-guide)
+- [Best Practices](#best-practices)
 
 ---
 
-## 🎯 Descripción General
+## Overview
 
-OSDO Workflows proporciona una suite integral de **10 flujos de trabajo de seguridad especializados** diseñados para ser reutilizables mediante `workflow_call`. Cada flujo de trabajo se enfoca en un dominio de seguridad específico, lo que permite:
+OSDO Workflows provides a comprehensive suite of **10 specialized security workflows** designed to be reusable through `workflow_call`. Each workflow focuses on a specific security domain, which lets you:
 
-- ✅ **Seleccionar lo que necesitas** - Usa únicamente lo que requieras
-- ✅ **Combinar flujos de trabajo** - Construye pipelines de seguridad completos
-- ✅ **Personalizar** - Parámetros de entrada extensos para mayor flexibilidad
-- ✅ **Escalar** - Desde proyectos individuales hasta despliegues a escala empresarial
+- ✅ **Pick what you need** — use only what you require
+- ✅ **Combine workflows** — build complete security pipelines
+- ✅ **Customize** — extensive input parameters for flexibility
+- ✅ **Scale** — from individual projects to enterprise deployments
 
 ---
 
-## 📦 Flujos de Trabajo Disponibles
+## Available Workflows
 
-| Flujo de Trabajo | Propósito | Características Principales |
+| Workflow | Purpose | Key Features |
 |----------|---------|--------------|
-| **[osdo-framework.yml](#1-osdo-framework)** | Pipeline CI/CD completo | Pruebas, seguridad, cumplimiento, informes |
-| **[osdo-container-security.yml](#2-seguridad-de-contenedores)** | Seguridad de contenedores | Trivy, Grype, SBOM, firma |
-| **[osdo-iac-security.yml](#3-seguridad-de-infraestructura-como-código)** | Seguridad de IaC | Terraform, K8s, CloudFormation, detección de desvíos |
-| **[osdo-supply-chain.yml](#4-seguridad-de-la-cadena-de-suministro)** | Seguridad de la cadena de suministro | SBOM, procedencia, SLSA, detección de malware |
-| **[osdo-continuous-monitoring.yml](#5-monitoreo-continuo)** | Monitoreo de seguridad | Análisis de tendencias, alertas, auto-remediación |
-| **[osdo-dast.yml](#6-dast)** | Pruebas dinámicas de aplicaciones | OWASP ZAP, SSL/TLS, cabeceras de seguridad |
-| **[osdo-api-security.yml](#7-seguridad-de-api)** | Seguridad de API | OWASP API Top 10, validación de esquemas |
-| **[osdo-mobile-security.yml](#8-seguridad-móvil)** | Seguridad de aplicaciones móviles | Cumplimiento MASVS, iOS/Android |
-| **[osdo-cloud-security.yml](#9-seguridad-en-la-nube)** | Seguridad en la nube | AWS/Azure/GCP, IAM, cumplimiento |
-| **[osdo-license-compliance.yml](#10-cumplimiento-de-licencias)** | Gestión de licencias | Aplicación de políticas, verificación de compatibilidad |
+| **[osdo-framework.yml](#1-osdo-framework)** | Complete CI/CD pipeline | Tests, security, compliance, reporting |
+| **[osdo-container-security.yml](#2-container-security)** | Container security | Trivy, Grype, SBOM, signing |
+| **[osdo-iac-security.yml](#3-infrastructure-as-code-security)** | IaC security | Terraform, K8s, CloudFormation, drift detection |
+| **[osdo-supply-chain.yml](#4-supply-chain-security)** | Supply chain security | SBOM, provenance, SLSA, malware detection |
+| **[osdo-continuous-monitoring.yml](#5-continuous-monitoring)** | Security monitoring | Trend analysis, alerts, auto-remediation |
+| **[osdo-dast.yml](#6-dast)** | Dynamic application testing | OWASP ZAP, SSL/TLS, security headers |
+| **[osdo-api-security.yml](#7-api-security)** | API security | OWASP API Top 10, schema validation |
+| **[osdo-mobile-security.yml](#8-mobile-security)** | Mobile application security | MASVS compliance, iOS/Android |
+| **[osdo-cloud-security.yml](#9-cloud-security)** | Cloud security | AWS/Azure/GCP, IAM, compliance |
+| **[osdo-license-compliance.yml](#10-license-compliance)** | License management | Policy enforcement, compatibility checks |
 
 ---
 
-## 🚀 Inicio Rápido
-
-### Uso Básico
-
-```yaml
-# .github/workflows/security.yml
-name: Security Pipeline
-
-on: [push, pull_request]
-
-jobs:
-  security:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-framework.yml@v2
-    secrets: inherit
-```
-
-### Enfoque Multi-Flujo
-
-```yaml
-# .github/workflows/comprehensive-security.yml
-name: Comprehensive Security
-
-on: [push, pull_request]
-
-jobs:
-  # Container Security
-  containers:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-container-security.yml@v2
-    with:
-      image-name: my-app
-      image-tag: latest
-
-  # Supply Chain
-  supply-chain:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-supply-chain.yml@v2
-    with:
-      package-manager: npm
-      slsa-level: "2"
-
-  # IaC Security
-  infrastructure:
-    uses: opensecdevops/osdo-workflows/.github/workflows/osdo-iac-security.yml@v2
-    with:
-      iac-type: terraform
-      compliance-frameworks: "cis,nist"
-```
-
----
-
-## 📖 Catálogo de Flujos de Trabajo
+## Workflow Reference
 
 ### 1. OSDO Framework
 
-**Pipeline completo de seguridad y cumplimiento normativo con todo incluido.**
+**Complete, all-in-one security and compliance pipeline.**
 
 ```yaml
 uses: opensecdevops/osdo-workflows/.github/workflows/osdo-framework.yml@v2
@@ -201,17 +147,17 @@ with:
   high-threshold: '5'
 ```
 
-**Características Principales:**
-- Pipeline CI/CD completo
-- Pruebas, controles de calidad y análisis de seguridad
-- Generación de SBOM
-- Informes de cumplimiento normativo
+**Key Features:**
+- Complete CI/CD pipeline
+- Tests, quality gates and security analysis
+- SBOM generation
+- Compliance reporting
 
 ---
 
-### 2. Seguridad de Contenedores
+### 2. Container Security
 
-**Análisis exhaustivo de seguridad y refuerzo de imágenes de contenedores.**
+**Thorough security analysis and hardening of container images.**
 
 ```yaml
 uses: opensecdevops/osdo-workflows/.github/workflows/osdo-container-security.yml@v2
@@ -224,25 +170,25 @@ with:
   critical-threshold: "0"
 ```
 
-**Características Principales:**
-- Soporte multi-escáner (Trivy, Grype, Snyk)
-- Análisis estático de Dockerfile
-- Generación de SBOM (SPDX/CycloneDX)
-- Firma de imágenes con Cosign
-- Detección de secretos en imágenes
-- Verificaciones de cumplimiento CIS
+**Key Features:**
+- Multi-scanner support (Trivy, Grype, Snyk)
+- Static analysis of Dockerfiles
+- SBOM generation (SPDX/CycloneDX)
+- Image signing with Cosign
+- Secret detection in images
+- CIS compliance checks
 
-**Salidas:**
-- `vulnerabilities-found` - Total de vulnerabilidades
-- `critical-count` - Vulnerabilidades críticas
-- `image-signed` - Estado de la firma
-- `security-score` - Puntuación general (0-100)
+**Outputs:**
+- `vulnerabilities-found` — Total vulnerabilities
+- `critical-count` — Critical vulnerabilities
+- `image-signed` — Signing status
+- `security-score` — Overall score (0-100)
 
 ---
 
-### 3. Seguridad de Infraestructura como Código
+### 3. Infrastructure-as-Code Security
 
-**Análisis de seguridad para Terraform, Kubernetes, CloudFormation y más.**
+**Security analysis for Terraform, Kubernetes, CloudFormation and more.**
 
 ```yaml
 uses: opensecdevops/osdo-workflows/.github/workflows/osdo-iac-security.yml@v2
@@ -254,24 +200,24 @@ with:
   enable-drift-detection: true
 ```
 
-**Características Principales:**
-- Análisis con múltiples herramientas (Checkov, KICS, tfsec, Terrascan)
-- Validación de manifiestos de Kubernetes
-- Aplicación de Política como Código
-- Detección de desvíos de infraestructura
-- Soporte multi-nube
-- Guía de remediación
+**Key Features:**
+- Multi-tool analysis (Checkov, KICS, tfsec, Terrascan)
+- Kubernetes manifest validation
+- Policy as Code enforcement
+- Infrastructure drift detection
+- Multi-cloud support
+- Remediation guidance
 
-**Salidas:**
-- `violations-found` - Total de violaciones
-- `compliance-score` - Porcentaje de cumplimiento
-- `drift-detected` - Estado de desvío
+**Outputs:**
+- `violations-found` — Total violations
+- `compliance-score` — Compliance percentage
+- `drift-detected` — Drift status
 
 ---
 
-### 4. Seguridad de la Cadena de Suministro
+### 4. Supply Chain Security
 
-**Seguridad completa de la cadena de suministro de software y gestión de SBOM.**
+**Complete software supply chain security and SBOM management.**
 
 ```yaml
 uses: opensecdevops/osdo-workflows/.github/workflows/osdo-supply-chain.yml@v2
@@ -284,26 +230,26 @@ with:
   typosquatting-detection: true
 ```
 
-**Características Principales:**
-- Generación y validación de SBOM
-- Verificación de procedencia
-- Cumplimiento SLSA (Niveles 1-4)
-- Detección de malware y typosquatting
-- Verificaciones de cumplimiento de licencias
-- Atestación de compilación
-- Análisis de alcanzabilidad
+**Key Features:**
+- SBOM generation and validation
+- Provenance verification
+- SLSA compliance (Levels 1–4)
+- Malware and typosquatting detection
+- License compliance checks
+- Build attestation
+- Reachability analysis
 
-**Salidas:**
-- `sbom-valid` - Estado de validación del SBOM
-- `slsa-level-achieved` - Nivel SLSA alcanzado
-- `malicious-packages` - Recuento de paquetes maliciosos
-- `security-score` - Puntuación de la cadena de suministro
+**Outputs:**
+- `sbom-valid` — SBOM validation status
+- `slsa-level-achieved` — SLSA level achieved
+- `malicious-packages` — Count of malicious packages
+- `security-score` — Supply chain score
 
 ---
 
-### 5. Monitoreo Continuo
+### 5. Continuous Monitoring
 
-**Monitoreo de seguridad programado con análisis de tendencias y alertas.**
+**Scheduled security monitoring with trend analysis and alerting.**
 
 ```yaml
 uses: opensecdevops/osdo-workflows/.github/workflows/osdo-continuous-monitoring.yml@v2
@@ -314,24 +260,24 @@ with:
   auto-create-issues: true
 ```
 
-**Características Principales:**
-- Reescaneo programado de vulnerabilidades
-- Análisis de tendencias y seguimiento de la postura de seguridad
-- Alertas en múltiples canales
-- Creación automática de incidencias
-- Seguimiento de remediación
-- Comparación con análisis anteriores
+**Key Features:**
+- Scheduled vulnerability re-scanning
+- Trend analysis and security posture tracking
+- Multi-channel alerts
+- Automatic issue creation
+- Remediation tracking
+- Comparison with previous scans
 
-**Salidas:**
-- `new-vulnerabilities` - Nuevas vulnerabilidades desde el último análisis
-- `security-score` - Puntuación actual
-- `trend-direction` - improving/degrading/stable
+**Outputs:**
+- `new-vulnerabilities` — New vulnerabilities since the last scan
+- `security-score` — Current score
+- `trend-direction` — improving/degrading/stable
 
 ---
 
 ### 6. DAST
 
-**Pruebas de seguridad de aplicaciones dinámicas para aplicaciones en ejecución.**
+**Dynamic application security testing for running applications.**
 
 ```yaml
 uses: opensecdevops/osdo-workflows/.github/workflows/osdo-dast.yml@v2
@@ -343,24 +289,24 @@ with:
   api-spec: "./openapi.yaml"
 ```
 
-**Características Principales:**
-- Análisis con OWASP ZAP
-- Detección de OWASP Top 10
-- Pruebas de configuración SSL/TLS
-- Validación de cabeceras de seguridad
-- Verificaciones de Política de Seguridad de Contenido
-- Pruebas específicas de API
+**Key Features:**
+- OWASP ZAP scanning
+- OWASP Top 10 detection
+- SSL/TLS configuration testing
+- Security header validation
+- Content Security Policy checks
+- API-specific tests
 
-**Salidas:**
-- `vulnerabilities-found` - Total de vulnerabilidades
-- `owasp-violations` - Problemas del OWASP Top 10
-- `risk-score` - Puntuación de riesgo de la aplicación
+**Outputs:**
+- `vulnerabilities-found` — Total vulnerabilities
+- `owasp-violations` — OWASP Top 10 issues
+- `risk-score` — Application risk score
 
 ---
 
-### 7. Seguridad de API
+### 7. API Security
 
-**Pruebas de seguridad especializadas para APIs REST, GraphQL y gRPC.**
+**Specialized security testing for REST, GraphQL and gRPC APIs.**
 
 ```yaml
 uses: opensecdevops/osdo-workflows/.github/workflows/osdo-api-security.yml@v2
@@ -373,25 +319,25 @@ with:
   api-fuzzing: true
 ```
 
-**Características Principales:**
-- Validación de especificaciones OpenAPI/Swagger
+**Key Features:**
+- OpenAPI/Swagger specification validation
 - OWASP API Security Top 10
-- Pruebas de autenticación y autorización
-- Verificación de limitación de velocidad
-- Validación de esquemas
-- Pruebas específicas de GraphQL
-- Fuzzing de API
+- Authentication and authorization testing
+- Rate-limit verification
+- Schema validation
+- GraphQL-specific tests
+- API fuzzing
 
-**Salidas:**
-- `security-score` - Puntuación de seguridad de la API
-- `owasp-violations` - Violaciones del API Top 10
-- `auth-issues` - Problemas de autenticación
+**Outputs:**
+- `security-score` — API security score
+- `owasp-violations` — API Top 10 violations
+- `auth-issues` — Authentication issues
 
 ---
 
-### 8. Seguridad Móvil
+### 8. Mobile Security
 
-**Análisis de seguridad para aplicaciones Android, iOS, React Native y Flutter.**
+**Security analysis for Android, iOS, React Native and Flutter applications.**
 
 ```yaml
 uses: opensecdevops/osdo-workflows/.github/workflows/osdo-mobile-security.yml@v2
@@ -403,25 +349,25 @@ with:
   check-obfuscation: true
 ```
 
-**Características Principales:**
-- Cumplimiento OWASP MASVS (L1/L2)
-- Análisis estático y binario
-- Verificación de SSL pinning
-- Verificaciones de ofuscación de código
-- Detección de root/jailbreak
-- Análisis de permisos
-- Detección de secretos embebidos
+**Key Features:**
+- OWASP MASVS compliance (L1/L2)
+- Static and binary analysis
+- SSL pinning verification
+- Code obfuscation checks
+- Root/jailbreak detection
+- Permission analysis
+- Embedded secret detection
 
-**Salidas:**
-- `security-score` - Puntuación de seguridad móvil
-- `masvs-compliance` - Estado de cumplimiento MASVS
-- `critical-issues` - Problemas de seguridad críticos
+**Outputs:**
+- `security-score` — Mobile security score
+- `masvs-compliance` — MASVS compliance status
+- `critical-issues` — Critical security issues
 
 ---
 
-### 9. Seguridad en la Nube
+### 9. Cloud Security
 
-**Análisis de seguridad multi-nube para AWS, Azure y GCP.**
+**Multi-cloud security analysis for AWS, Azure and GCP.**
 
 ```yaml
 uses: opensecdevops/osdo-workflows/.github/workflows/osdo-cloud-security.yml@v2
@@ -433,26 +379,26 @@ with:
   public-exposure-check: true
 ```
 
-**Características Principales:**
-- Soporte multi-nube (AWS/Azure/GCP)
-- Análisis de políticas IAM
-- Evaluación de seguridad de red
-- Verificación de cifrado
-- Detección de exposición pública
-- Cumplimiento de CIS Benchmarks
-- Análisis de coste-seguridad
+**Key Features:**
+- Multi-cloud support (AWS/Azure/GCP)
+- IAM policy analysis
+- Network security assessment
+- Encryption verification
+- Public exposure detection
+- CIS Benchmarks compliance
+- Cost-security analysis
 
-**Salidas:**
-- `misconfigurations-found` - Total de configuraciones incorrectas
-- `compliance-score` - Porcentaje de cumplimiento
-- `iam-issues` - Problemas de seguridad IAM
-- `cost-impact` - Estimación del coste de remediación
+**Outputs:**
+- `misconfigurations-found` — Total misconfigurations
+- `compliance-score` — Compliance percentage
+- `iam-issues` — IAM security issues
+- `cost-impact` — Estimated remediation cost
 
 ---
 
-### 10. Cumplimiento de Licencias
+### 10. License Compliance
 
-**Gestión de licencias de software y aplicación de cumplimiento normativo.**
+**Software license management and compliance enforcement.**
 
 ```yaml
 uses: opensecdevops/osdo-workflows/.github/workflows/osdo-license-compliance.yml@v2
@@ -464,25 +410,25 @@ with:
   compatibility-check: true
 ```
 
-**Características Principales:**
-- Soporte multi-lenguaje
-- Aplicación de políticas de licencias
-- Detección de licencias copyleft
-- Verificación de compatibilidad
-- Generación de archivos NOTICE
-- SBOM con información de licencias
-- Informes de cumplimiento automatizados
+**Key Features:**
+- Multi-language support
+- License policy enforcement
+- Copyleft license detection
+- Compatibility verification
+- NOTICE file generation
+- SBOM with license information
+- Automated compliance reports
 
-**Salidas:**
-- `total-licenses` - Licencias únicas encontradas
-- `denied-licenses-found` - Violaciones de política
-- `compliance-status` - Estado general
+**Outputs:**
+- `total-licenses` — Unique licenses found
+- `denied-licenses-found` — Policy violations
+- `compliance-status` — Overall status
 
 ---
 
-## 🎨 Patrones de Integración
+## Integration Patterns
 
-### Patrón 1: Seguridad Full Stack
+### Pattern 1: Full-Stack Security
 
 ```yaml
 name: Full Stack Security
@@ -524,7 +470,7 @@ jobs:
       fail-on-denied: true
 ```
 
-### Patrón 2: Monitoreo Programado
+### Pattern 2: Scheduled Monitoring
 
 ```yaml
 name: Security Monitoring
@@ -542,7 +488,7 @@ jobs:
       auto-create-issues: true
 ```
 
-### Patrón 3: Validación Pre-Producción
+### Pattern 3: Pre-Production Validation
 
 ```yaml
 name: Pre-Production Security
@@ -567,26 +513,26 @@ jobs:
 
 ---
 
-## ⚙️ Guía de Configuración
+## Configuration Guide
 
-### Matriz de Selección de Flujos de Trabajo
+### Workflow Selection Matrix
 
-| Necesidad | Flujo(s) de Trabajo Recomendado(s) |
+| Need | Recommended Workflow(s) |
 |------|------------------------|
-| **CI/CD General** | osdo-framework |
+| **General CI/CD** | osdo-framework |
 | **Docker/Kubernetes** | osdo-container-security |
 | **Terraform/IaC** | osdo-iac-security |
-| **Dependencias** | osdo-supply-chain |
-| **Aplicación en Ejecución** | osdo-dast |
-| **API REST/GraphQL** | osdo-api-security |
-| **Aplicación Móvil** | osdo-mobile-security |
+| **Dependencies** | osdo-supply-chain |
+| **Running application** | osdo-dast |
+| **REST/GraphQL API** | osdo-api-security |
+| **Mobile application** | osdo-mobile-security |
 | **AWS/Azure/GCP** | osdo-cloud-security |
-| **Licencias de Código Abierto** | osdo-license-compliance |
-| **Monitoreo Continuo** | osdo-continuous-monitoring |
+| **Open-source licenses** | osdo-license-compliance |
+| **Continuous monitoring** | osdo-continuous-monitoring |
 
-### Patrones de Configuración Comunes
+### Common Configuration Profiles
 
-#### Proyecto de Alta Seguridad
+#### High-Security Project
 ```yaml
 with:
   critical-threshold: "0"
@@ -596,7 +542,7 @@ with:
   slsa-level: "3"
 ```
 
-#### Enfoque Equilibrado
+#### Balanced Approach
 ```yaml
 with:
   critical-threshold: "0"
@@ -605,7 +551,7 @@ with:
   slsa-level: "2"
 ```
 
-#### Permisivo (Desarrollo)
+#### Permissive (Development)
 ```yaml
 with:
   critical-threshold: "5"
@@ -616,15 +562,15 @@ with:
 
 ---
 
-## 🎯 Mejores Prácticas
+## Best Practices
 
-### 1. Comienza Simple, Escala Gradualmente
+### 1. Start Simple, Scale Gradually
 
-Comienza con el flujo de trabajo **osdo-framework** y luego añade flujos especializados según sea necesario.
+Start with the **osdo-framework** workflow, then add specialized workflows as needed.
 
-### 2. Utiliza Secretos Correctamente
+### 2. Use Secrets Correctly
 
-Usa siempre los Secretos de GitHub para datos sensibles:
+Always use GitHub Secrets for sensitive data:
 
 ```yaml
 jobs:
@@ -633,17 +579,17 @@ jobs:
     secrets: inherit
 ```
 
-### 3. Fija las Versiones
+### 3. Pin Versions
 
-Usa versiones o etiquetas específicas en producción:
+Use specific versions or tags in production:
 
 ```yaml
 uses: opensecdevops/osdo-workflows/.github/workflows/osdo-framework.yml@v2.2.0
 ```
 
-### 4. Combina con Criterio
+### 4. Combine With Judgment
 
-No ejecutes todos los flujos de trabajo en cada evento:
+Don't run every workflow on every event:
 
 ```yaml
 on:
@@ -655,45 +601,45 @@ on:
     - cron: '0 2 * * 1'  # Weekly monitoring
 ```
 
-### 5. Monitorea Tendencias
+### 5. Track Trends
 
-Usa `osdo-continuous-monitoring` para el seguimiento a largo plazo de la postura de seguridad.
+Use `osdo-continuous-monitoring` for long-term tracking of your security posture.
 
 ---
 
-## 📊 Comparación de Flujos de Trabajo
+## Workflow Comparison
 
-| Característica | Framework | Contenedor | IaC | Cadena de Suministro | Móvil | Nube |
+| Feature | Framework | Container | IaC | Supply Chain | Mobile | Cloud |
 |---------|-----------|-----------|-----|--------------|--------|-------|
-| **Alcance** | Completo | Contenedores | Infraestructura | Dependencias | Aplicaciones | Recursos en la Nube |
-| **Complejidad** | Alta | Media | Media | Alta | Media | Alta |
-| **Tiempo de Configuración** | 5 min | 2 min | 3 min | 5 min | 10 min | 15 min |
-| **Lenguajes** | Todos | N/A | Múltiples | Todos | iOS/Android | N/A |
+| **Scope** | Complete | Containers | Infrastructure | Dependencies | Applications | Cloud resources |
+| **Complexity** | High | Medium | Medium | High | Medium | High |
+| **Setup Time** | 5 min | 2 min | 3 min | 5 min | 10 min | 15 min |
+| **Languages** | All | N/A | Multiple | All | iOS/Android | N/A |
 | **SBOM** | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
-| **Cumplimiento** | ✅ | ✅ | ✅ | ✅ | ✅ (MASVS) | ✅ (CIS) |
+| **Compliance** | ✅ | ✅ | ✅ | ✅ | ✅ (MASVS) | ✅ (CIS) |
 
 ---
 
-## 🤝 Contribuciones
+## 🤝 Contributing
 
-¡Damos la bienvenida a las contribuciones! Consulta [CONTRIBUTING.md](../CONTRIBUTING.md) para más detalles.
-
----
-
-## 📄 Licencia
-
-Licencia MIT - consulta [LICENSE](../LICENSE) para más detalles.
+Contributions are welcome! See [CONTRIBUTING.md](https://github.com/opensecdevops/.github/blob/main/CONTRIBUTING.md) for details.
 
 ---
 
-## 🔗 Proyectos Relacionados
+## 📄 License
 
-- **[osdo-actions](../osdo-actions/README.md)** - GitHub Actions granulares
-- **[osdo-workflow-template](../osdo-workflow-template/README.md)** - Marco de trabajo con convenciones predefinidas
-- **[Documentación OSDO](../README.md)** - Centro de documentación completo
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
 
 ---
 
-**Hecho con ❤️ por la Comunidad OpenSecDevOps**
+## 🔗 Related Projects
 
-*Última actualización: diciembre de 2025*
+- **[osdo-actions](https://github.com/opensecdevops/osdo-actions)** - Granular GitHub Actions
+- **osdo-workflow-template** - Framework with predefined conventions
+- **[OSDO Documentation](https://github.com/opensecdevops/osdo)** - Complete documentation hub
+
+---
+
+**Made with ❤️ by the OpenSecDevOps Community**
+
+*Last updated: December 2025*
