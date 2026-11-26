@@ -449,10 +449,17 @@ jobs:
     needs: [test-quality, security-scan, security-quality-gate, build-security]
     if: ${{ inputs.run-compliance-report }}
     runs-on: ubuntu-latest
+    env:
+      # osdo-compliance-report v2.0.0 writes to "$OSDO_RESULTS_DIR/..." and does not
+      # default it; unset, it tries to write to "/" and fails with "Permission denied".
+      OSDO_RESULTS_DIR: .osdo/results
     outputs:
       compliance-status: ${{ steps.report.outputs.compliance-status }}
       report-path: ${{ steps.report.outputs.report-path }}
     steps:
+      - name: Prepare Results Directory
+        run: mkdir -p "$OSDO_RESULTS_DIR"
+
       - name: Download Scan Results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         continue-on-error: true
