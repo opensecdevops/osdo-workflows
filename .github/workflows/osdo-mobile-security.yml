@@ -56,11 +56,11 @@ jobs:
       critical: ${{ steps.scan.outputs.critical-issues }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Run Mobile Security Scan
         id: scan
-        uses: opensecdevops/osdo-actions/actions/osdo-mobile-scan@osdo-mobile-scan/v1.0.0
+        uses: opensecdevops/osdo-actions/actions/osdo-mobile-scan@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
           platform: ${{ inputs.platform }}
           binary-path: ${{ inputs.binary-path }}
@@ -69,7 +69,7 @@ jobs:
           results-dir: .osdo/results
 
       - name: Upload Mobile Scan Results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: mobile-scan-results

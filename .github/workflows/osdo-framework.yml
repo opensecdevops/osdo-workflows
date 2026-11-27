@@ -25,7 +25,7 @@ on:
         default: "1.21"
         type: string
       php-version:
-        description: "PHP version to use"
+        description: "PHP version to use (not wired: osdo-setup-env v2.0.0 has no PHP step)"
         required: false
         default: "8.2"
         type: string
@@ -46,6 +46,11 @@ on:
         required: false
         default: true
         type: boolean
+      enforce-compliance:
+        description: "Fail the final gate when the compliance verdict is NON_COMPLIANT. Set false only to test the pipeline plumbing on a repository without code. Missing outputs and unknown statuses still fail."
+        required: false
+        default: true
+        type: boolean
 
       # Quality Thresholds
       test-coverage-threshold:
@@ -54,7 +59,7 @@ on:
         default: "80"
         type: string
       fail-on-high-security:
-        description: "Fail pipeline on high severity vulnerabilities"
+        description: "Not wired in v2.0.0 of the composite actions; the security quality gate applies critical/high thresholds instead"
         required: false
         default: true
         type: boolean
@@ -160,6 +165,9 @@ on:
       build-verification:
         description: "Build verification status"
         value: ${{ jobs.build-security.outputs.build-status }}
+      security-score:
+        description: "Security score from the quality gate (0-100)"
+        value: ${{ jobs.security-quality-gate.outputs.security-score }}
 
 permissions:
   contents: read
@@ -179,24 +187,23 @@ jobs:
       cache-key: ${{ steps.osdo-setup.outputs.cache-key }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
       - name: Setup OSDO Environment
         id: osdo-setup
-        # Action pública (repo propio / Marketplace-friendly)
-        uses: opensecdevops/osdo-setup-osdo@v1
+        uses: opensecdevops/osdo-actions/actions/osdo-setup-env@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
           node-version: ${{ inputs.node-version }}
           python-version: ${{ inputs.python-version }}
           java-version: ${{ inputs.java-version }}
           go-version: ${{ inputs.go-version }}
-          php-version: ${{ inputs.php-version }}
           setup-docker: ${{ inputs.enable-container-scan }}
+          results-dir: .osdo/results
 
       - name: Upload Results Directory
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: osdo-results
           path: ${{ steps.osdo-setup.outputs.results-dir }}
@@ -207,39 +214,42 @@ jobs:
     runs-on: ubuntu-latest
     needs: setup
     if: ${{ inputs.run-tests }}
+    env:
+      OSDO_RESULTS_DIR: .osdo/results
     outputs:
       test-results: ${{ steps.quality-gate.outputs.test-results }}
       coverage-percentage: ${{ steps.quality-gate.outputs.coverage-percentage }}
       quality-score: ${{ steps.quality-gate.outputs.quality-score }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: Download Results Directory
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: osdo-results
-          path: ${{ needs.setup.outputs.results-dir }}
+      - name: Prepare results directory
+        run: mkdir -p "$OSDO_RESULTS_DIR"
 
       - name: Execute Quality Gate
         id: quality-gate
-        # Action pública
-        uses: opensecdevops/osdo-test-quality@v1
+        uses: opensecdevops/osdo-actions/actions/osdo-test-quality@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
-          results-dir: ${{ needs.setup.outputs.results-dir }}
           test-coverage-threshold: ${{ inputs.test-coverage-threshold }}
           enable-unit-tests: ${{ inputs.enable-unit-tests }}
           enable-integration-tests: ${{ inputs.enable-integration-tests }}
           enable-e2e-tests: ${{ inputs.enable-e2e-tests }}
           enable-code-quality: true
 
+      - name: Save test summary
+        if: always()
+        env:
+          TEST_SUMMARY: ${{ steps.quality-gate.outputs.test-results }}
+        run: printf '%s\n' "$TEST_SUMMARY" > "$OSDO_RESULTS_DIR/test-summary.txt"
+
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: test-results
-          path: ${{ steps.quality-gate.outputs.test-results }}
+          path: .osdo/results
+          if-no-files-found: warn
 
   security-scan:
     name: "Security Scan"
@@ -247,37 +257,90 @@ jobs:
     if: ${{ inputs.run-security-scan }}
     runs-on: ubuntu-latest
     outputs:
-      sarif-files: ${{ steps.scan.outputs.sarif-files }}
       vulnerabilities-found: ${{ steps.scan.outputs.vulnerabilities-found }}
+      sast-critical: ${{ steps.scan.outputs.sast-critical }}
+      sast-high: ${{ steps.scan.outputs.sast-high }}
+      sca-critical: ${{ steps.scan.outputs.sca-critical }}
+      sca-high: ${{ steps.scan.outputs.sca-high }}
+      secrets-findings: ${{ steps.scan.outputs.secrets-findings }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
-      - name: Download Results Directory
-        uses: actions/download-artifact@v4
-        continue-on-error: true
+      - name: Run SAST
+        id: sast
+        if: ${{ inputs.enable-sast }}
+        uses: opensecdevops/osdo-actions/actions/osdo-sast@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
-          name: osdo-results
-          path: ${{ needs.setup.outputs.results-dir }}
+          path: .
+          fail-on-finding: "false"
+          results-dir: .osdo/results
 
-      - name: Run Security Scans
+      - name: Run SCA
+        id: sca
+        if: ${{ inputs.enable-sca }}
+        uses: opensecdevops/osdo-actions/actions/osdo-sca@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
+        with:
+          path: .
+          fail-on-critical: "false"
+          fail-on-high: "false"
+          results-dir: .osdo/results
+
+      - name: Run Secrets Scan
+        id: secrets
+        if: ${{ inputs.enable-secrets }}
+        uses: opensecdevops/osdo-actions/actions/osdo-secrets-scan@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
+        with:
+          path: .
+          fail-on-finding: "false"
+          results-dir: .osdo/results
+
+      - name: Aggregate Scan Results
         id: scan
-        # Action pública
-        uses: opensecdevops/osdo-security-scan@v1
-        with:
-          results-dir: ${{ needs.setup.outputs.results-dir }}
-          enable-sast: ${{ inputs.enable-sast }}
-          enable-sca: ${{ inputs.enable-sca }}
-          enable-secrets: ${{ inputs.enable-secrets }}
+        env:
+          SAST_CRITICAL: ${{ steps.sast.outputs.critical-count }}
+          SAST_HIGH: ${{ steps.sast.outputs.high-count }}
+          SCA_CRITICAL: ${{ steps.sca.outputs.critical-count }}
+          SCA_HIGH: ${{ steps.sca.outputs.high-count }}
+          SECRETS_FOUND: ${{ steps.secrets.outputs.findings }}
+        run: |
+          num() { case "$1" in ''|*[!0-9]*) echo 0 ;; *) echo "$1" ;; esac; }
+          total=$(( $(num "$SAST_CRITICAL") + $(num "$SAST_HIGH") + $(num "$SCA_CRITICAL") + $(num "$SCA_HIGH") + $(num "$SECRETS_FOUND") ))
+          # Raw per-scanner values, empty when that scanner did not run. The quality gate
+          # treats an empty value as a failure for every enabled scanner.
+          {
+            echo "sast-critical=${SAST_CRITICAL}"
+            echo "sast-high=${SAST_HIGH}"
+            echo "sca-critical=${SCA_CRITICAL}"
+            echo "sca-high=${SCA_HIGH}"
+            echo "secrets-findings=${SECRETS_FOUND}"
+          } >> "$GITHUB_OUTPUT"
+          echo "vulnerabilities-found=$total" >> "$GITHUB_OUTPUT"
+          echo "Findings (SAST crit+high, SCA crit+high, secrets): $total"
 
-      - name: Upload SARIF files
-        if: steps.scan.outputs.sarif-files != ''
-        uses: github/codeql-action/upload-sarif@v3
+      - name: Upload SAST SARIF
+        if: ${{ steps.sast.outputs.sarif-file != '' }}
+        uses: github/codeql-action/upload-sarif@74c1aea9df7c0f02e9b7bfe4a8935abf2e5e3aa6 # v3.39.5
         with:
-          sarif_file: ${{ steps.scan.outputs.sarif-files }}
-          category: "osdo-scan"
+          sarif_file: ${{ steps.sast.outputs.sarif-file }}
+          category: "osdo-sast"
+
+      - name: Upload Secrets SARIF
+        if: ${{ steps.secrets.outputs.sarif-file != '' }}
+        uses: github/codeql-action/upload-sarif@74c1aea9df7c0f02e9b7bfe4a8935abf2e5e3aa6 # v3.39.5
+        with:
+          sarif_file: ${{ steps.secrets.outputs.sarif-file }}
+          category: "osdo-secrets"
+
+      - name: Upload Scan Results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: security-results
+          path: .osdo/results
+          if-no-files-found: ignore
 
   build-security:
     name: "Build Security & SBOM"
@@ -289,22 +352,23 @@ jobs:
       sbom-files: ${{ steps.build.outputs.sbom-files }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Download Results Directory
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: osdo-results
-          path: ${{ needs.setup.outputs.results-dir }}
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Run Build Security
         id: build
-        # Action pública
-        uses: opensecdevops/osdo-build-security@v1
+        uses: opensecdevops/osdo-actions/actions/osdo-build-security@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
-          sbom-format: ${{ inputs.sbom-format }}
           build-command: ${{ inputs.build-command }}
+          sbom-format: ${{ inputs.sbom-format }}
+          results-dir: .osdo/results
+
+      - name: Upload Build Results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: build-results
+          path: .osdo/results
+          if-no-files-found: ignore
 
   security-quality-gate:
     name: "Security Quality Gate"
@@ -313,49 +377,133 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       gate-status: ${{ steps.gate.outputs.gate-status }}
+      security-score: ${{ steps.enforce.outputs.security-score }}
     steps:
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+      - name: Download Scan Results
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
         with:
-          path: artifacts
+          pattern: "*-results"
+          path: .osdo/results
+          merge-multiple: true
 
       - name: Run Quality Gate
         id: gate
-        # ✅ Action pública
-        uses: opensecdevops/osdo-security-quality-gate@v1
+        uses: opensecdevops/osdo-actions/actions/osdo-security-gate@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
           coverage-threshold: ${{ inputs.test-coverage-threshold }}
           critical-threshold: ${{ inputs.critical-threshold }}
           high-threshold: ${{ inputs.high-threshold }}
           secrets-threshold: ${{ inputs.secrets-threshold }}
+          results-dir: .osdo/results
+
+      - name: Enforce Scanner Thresholds (fail closed)
+        id: enforce
+        env:
+          ENABLE_SAST: ${{ inputs.enable-sast }}
+          ENABLE_SCA: ${{ inputs.enable-sca }}
+          ENABLE_SECRETS: ${{ inputs.enable-secrets }}
+          SAST_CRITICAL: ${{ needs.security-scan.outputs.sast-critical }}
+          SAST_HIGH: ${{ needs.security-scan.outputs.sast-high }}
+          SCA_CRITICAL: ${{ needs.security-scan.outputs.sca-critical }}
+          SCA_HIGH: ${{ needs.security-scan.outputs.sca-high }}
+          SECRETS_FINDINGS: ${{ needs.security-scan.outputs.secrets-findings }}
+          CRITICAL_THRESHOLD: ${{ inputs.critical-threshold }}
+          HIGH_THRESHOLD: ${{ inputs.high-threshold }}
+          SECRETS_THRESHOLD: ${{ inputs.secrets-threshold }}
+        run: |
+          require_count() {
+            # $1 label, $2 value: fail unless the value is a non-negative integer.
+            if [[ ! "$2" =~ ^[0-9]+$ ]]; then
+              echo "::error::$1 result missing or non-numeric ('$2'); failing closed"
+              exit 1
+            fi
+          }
+          critical=0
+          high=0
+          secrets=0
+          if [ "$ENABLE_SAST" = "true" ]; then
+            require_count "SAST critical" "$SAST_CRITICAL"
+            require_count "SAST high" "$SAST_HIGH"
+            critical=$((critical + SAST_CRITICAL))
+            high=$((high + SAST_HIGH))
+          fi
+          if [ "$ENABLE_SCA" = "true" ]; then
+            require_count "SCA critical" "$SCA_CRITICAL"
+            require_count "SCA high" "$SCA_HIGH"
+            critical=$((critical + SCA_CRITICAL))
+            high=$((high + SCA_HIGH))
+          fi
+          if [ "$ENABLE_SECRETS" = "true" ]; then
+            require_count "Secrets" "$SECRETS_FINDINGS"
+            secrets=$SECRETS_FINDINGS
+          fi
+          echo "Scanner totals: critical=$critical high=$high secrets=$secrets"
+          failed=0
+          if [ "$critical" -gt "$CRITICAL_THRESHOLD" ]; then echo "::error::Critical findings $critical exceed threshold $CRITICAL_THRESHOLD"; failed=1; fi
+          if [ "$high" -gt "$HIGH_THRESHOLD" ]; then echo "::error::High findings $high exceed threshold $HIGH_THRESHOLD"; failed=1; fi
+          if [ "$secrets" -gt "$SECRETS_THRESHOLD" ]; then echo "::error::Secrets findings $secrets exceed threshold $SECRETS_THRESHOLD"; failed=1; fi
+          # Framework-defined heuristic (not an OSDO standard): 100 minus 10 per critical,
+          # 5 per high and 10 per secret, floored at 0. Covers the scanners enabled above.
+          score=$((100 - critical * 10 - high * 5 - secrets * 10))
+          if [ "$score" -lt 0 ]; then score=0; fi
+          echo "security-score=$score" >> "$GITHUB_OUTPUT"
+          echo "Security score: $score/100"
+          exit $failed
+
 
   compliance-report:
     name: "Compliance Report"
-    needs: [security-quality-gate, build-security]
+    needs: [test-quality, security-scan, security-quality-gate, build-security]
     if: ${{ inputs.run-compliance-report }}
     runs-on: ubuntu-latest
+    env:
+      # osdo-compliance-report v2.0.0 writes to "$OSDO_RESULTS_DIR/..." and
+      # "$OSDO_REPORTS_DIR/..." without defaults; unset, it writes to "/" (Permission denied).
+      OSDO_RESULTS_DIR: .osdo/results
+      OSDO_REPORTS_DIR: .osdo/reports
     outputs:
       compliance-status: ${{ steps.report.outputs.compliance-status }}
       report-path: ${{ steps.report.outputs.report-path }}
     steps:
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+      - name: Prepare Results Directory
+        run: mkdir -p "$OSDO_RESULTS_DIR" "$OSDO_REPORTS_DIR"
+
+      - name: Download Scan Results
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        continue-on-error: true
         with:
-          path: artifacts
+          pattern: "*-results"
+          path: .osdo/results
+          merge-multiple: true
+
+      - name: Require Security Score
+        env:
+          SECURITY_SCORE: ${{ needs.security-quality-gate.outputs.security-score }}
+        run: |
+          if [[ ! "$SECURITY_SCORE" =~ ^[0-9]+$ ]]; then
+            echo "::error::security-score unavailable: the security scan and quality gate must both run"
+            exit 1
+          fi
 
       - name: Generate Compliance Report
         id: report
-        # Action pública
-        uses: opensecdevops/osdo-compliance-report@v1
+        uses: opensecdevops/osdo-actions/actions/osdo-compliance-report@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
         with:
-          artifacts-path: "artifacts"
+          test-results: ${{ needs.test-quality.outputs.test-results }}
+          security-results: ${{ needs.security-scan.outputs.vulnerabilities-found }}
+          coverage-percentage: ${{ needs.test-quality.outputs.coverage-percentage }}
+          build-security-results: ${{ needs.build-security.outputs.build-status }}
+          quality-gate-status: ${{ needs.security-quality-gate.outputs.gate-status }}
+          security-score: ${{ needs.security-quality-gate.outputs.security-score }}
+          project-name: ${{ github.repository }}
           report-format: ${{ inputs.report-format }}
-          fail-on-high: ${{ inputs.fail-on-high-security }}
 
   final-security-gate:
     name: "Final Security Gate"
     needs:
       [
+        setup,
         test-quality,
         security-scan,
         build-security,
@@ -366,6 +514,14 @@ jobs:
     if: always()
     steps:
       - name: Evaluate Final Security Gate
+        env:
+          SETUP_RESULT: ${{ needs.setup.result }}
+          TEST_RESULT: ${{ needs.test-quality.result }}
+          SCAN_RESULT: ${{ needs.security-scan.result }}
+          BUILD_RESULT: ${{ needs.build-security.result }}
+          GATE_RESULT: ${{ needs.security-quality-gate.result }}
+          COMPLIANCE_RESULT: ${{ needs.compliance-report.result }}
+          ENFORCE_COMPLIANCE: ${{ inputs.enforce-compliance }}
         run: |
           compliance_status="${{ needs.compliance-report.outputs.compliance-status }}"
           quality_gate_status="${{ needs.security-quality-gate.outputs.gate-status }}"
@@ -380,32 +536,68 @@ jobs:
           echo "Test Coverage: ${coverage:-N/A}%"
           echo "===================================="
 
-          # Expectations based on toggles (fail closed if expected output is missing)
-          if [ "${{ inputs.run-compliance-report }}" = "true" ] && [ -z "$compliance_status" ]; then
-            echo "::error::Compliance report was expected but produced no status"
-            exit 1
-          fi
-          if [ "${{ inputs.enable-quality-gate }}" = "true" ] && [ -z "$quality_gate_status" ]; then
-            echo "::error::Quality gate was expected but produced no status"
-            exit 1
-          fi
-          if [ "${{ inputs.run-security-scan }}" = "true" ] && [ -z "$vulnerabilities" ]; then
-            echo "::error::Security scan was expected but produced no results"
-            exit 1
-          fi
-          if [ "${{ inputs.run-tests }}" = "true" ] && [ -z "$coverage" ]; then
+          # A required job that failed or was cancelled fails the pipeline, whatever the toggles say.
+          for result in "$SETUP_RESULT" "$TEST_RESULT" "$SCAN_RESULT" "$BUILD_RESULT" "$GATE_RESULT" "$COMPLIANCE_RESULT"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "::error::A required OSDO job finished with result '$result'"
+              exit 1
+            fi
+          done
+
+          # Expectations follow the toggles that actually reach each output. A job skipped by a
+          # toggle (directly or through its needs) is not expected to report. Defaults keep every
+          # check on, so real callers still fail closed.
+          tests_on="${{ inputs.run-tests }}"
+          scan_on="${{ inputs.run-security-scan }}"
+          build_on="${{ inputs.enable-build-security }}"
+          gate_on="${{ inputs.enable-quality-gate }}"
+          report_on="${{ inputs.run-compliance-report }}"
+          if [ "$tests_on" = "true" ] && [ -z "$coverage" ]; then
             echo "::error::Tests were expected but produced no coverage"
             exit 1
           fi
+          if [ "$scan_on" = "true" ] && [ -z "$vulnerabilities" ]; then
+            echo "::error::Security scan was expected but produced no results"
+            exit 1
+          fi
+          if [ "$tests_on" = "true" ] && [ "$scan_on" = "true" ] && [ "$gate_on" = "true" ] && [ -z "$quality_gate_status" ]; then
+            echo "::error::Quality gate was expected but produced no status"
+            exit 1
+          fi
+          if [ "$report_on" = "true" ] && [ "$tests_on" = "true" ] && [ "$scan_on" = "true" ] && [ "$build_on" = "true" ] && [ "$gate_on" = "true" ] && [ -z "$compliance_status" ]; then
+            echo "::error::Compliance report was expected but produced no status"
+            exit 1
+          fi
+
+          # Unknown verdicts fail closed.
+          case "$compliance_status" in
+            ""|COMPLIANT|PARTIALLY_COMPLIANT|NON_COMPLIANT) ;;
+            *) echo "::error::Unknown compliance status '$compliance_status'"; exit 1 ;;
+          esac
+          case "$quality_gate_status" in
+            ""|PASSED|WARNING|FAILED) ;;
+            *) echo "::error::Unknown quality gate status '$quality_gate_status'"; exit 1 ;;
+          esac
 
           # Determine overall status
-          if [ "$compliance_status" = "NON_COMPLIANT" ] || [ "$quality_gate_status" = "FAILED" ]; then
-            echo "::error::OSDO Final Security Gate FAILED"
-            echo "Pipeline failed security and compliance checks"
+          if [ "$quality_gate_status" = "FAILED" ]; then
+            echo "::error::OSDO Final Security Gate FAILED: quality gate FAILED"
+            echo "Pipeline failed security checks"
             exit 1
-          elif [ "$compliance_status" = "PARTIALLY_COMPLIANT" ] || [ "$quality_gate_status" = "WARNING" ]; then
+          fi
+          if [ "$compliance_status" = "NON_COMPLIANT" ]; then
+            if [ "$ENFORCE_COMPLIANCE" = "true" ]; then
+              echo "::error::OSDO Final Security Gate FAILED: compliance NON_COMPLIANT"
+              echo "Pipeline failed compliance checks"
+              exit 1
+            fi
+            echo "::warning::Compliance verdict NON_COMPLIANT is not enforced (enforce-compliance: false)"
+          fi
+          if [ "$compliance_status" = "PARTIALLY_COMPLIANT" ] || [ "$quality_gate_status" = "WARNING" ]; then
             echo "::warning::OSDO Final Security Gate WARNING"
             echo "Pipeline passed with warnings"
+          elif [ "$compliance_status" = "NON_COMPLIANT" ]; then
+            echo "::notice::OSDO Final Security Gate PASSED (compliance verdict not enforced)"
           else
             echo "::notice::OSDO Final Security Gate PASSED"
             echo "Pipeline fully compliant and secure"

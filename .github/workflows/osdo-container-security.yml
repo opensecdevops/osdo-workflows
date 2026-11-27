@@ -9,9 +9,13 @@ on:
                 required: true
                 type: string
             image-tag:
-                description: "Container image tag"
+                description: "Container image tag (informational when image-digest is set)"
                 required: false
                 default: "latest"
+                type: string
+            image-digest:
+                description: "Immutable digest (sha256:<64 hex>) of the image already built and pushed to registry/image-name. The scan and the signature both target this digest only."
+                required: true
                 type: string
             registry:
                 description: "Container registry (docker.io, ghcr.io, etc.)"
@@ -102,23 +106,39 @@ jobs:
             dockerfile-issues: ${{ steps.scan.outputs.dockerfile-issues }}
             sbom-path: ${{ steps.scan.outputs.sbom-path }}
             security-score: ${{ steps.calculate-score.outputs.score }}
+            image-digest: ${{ steps.digest.outputs.digest }}
         steps:
             - name: Checkout Code
-              uses: actions/checkout@v4
+              uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
             - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+              uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
-            - name: Build Image for Scanning
+            # The scan targets the digest the pipeline pushed, not a locally built tag,
+            # so the scanned bytes are the bytes that get signed.
+            - name: Validate Image Digest
+              id: digest
+              env:
+                  IMAGE_DIGEST: ${{ inputs.image-digest }}
+                  IMAGE_REPO: ${{ inputs.registry }}/${{ inputs.image-name }}
               run: |
-                  docker build -t ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }} -f ${{ inputs.dockerfile-path }} .
+                  if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                      echo "::error::image-digest must match ^sha256:[0-9a-f]{64}$ (got '${IMAGE_DIGEST}')"
+                      exit 1
+                  fi
+                  # Read-only check that the digest resolves in the registry.
+                  docker buildx imagetools inspect "${IMAGE_REPO}@${IMAGE_DIGEST}" > /dev/null
+                  echo "digest=${IMAGE_DIGEST}" >> "$GITHUB_OUTPUT"
+                  echo "hex=${IMAGE_DIGEST#sha256:}" >> "$GITHUB_OUTPUT"
 
             - name: Run Container Security Scan
               id: scan
-              uses: opensecdevops/osdo-actions/actions/osdo-container-scan@osdo-container-scan/v1.0.0
+              uses: opensecdevops/osdo-actions/actions/osdo-container-scan@cb95b82420cf2982af9669720ce4a4a06bf88090 # v2.0.0
               with:
-                  image-name: ${{ inputs.registry }}/${{ inputs.image-name }}
-                  image-tag: ${{ inputs.image-tag }}
+                  # The action scans "<image-name>:<image-tag>". Passing the digest through
+                  # these two inputs yields "<registry>/<name>@sha256:<hex>".
+                  image-name: ${{ inputs.registry }}/${{ inputs.image-name }}@sha256
+                  image-tag: ${{ steps.digest.outputs.hex }}
                   dockerfile-path: ${{ inputs.dockerfile-path }}
                   scanners: ${{ inputs.scanners }}
                   enable-dockerfile-lint: ${{ inputs.enable-dockerfile-lint }}
@@ -128,7 +148,7 @@ jobs:
                   results-dir: .osdo/results
 
             - name: Upload SARIF Results
-              uses: github/codeql-action/upload-sarif@v3
+              uses: github/codeql-action/upload-sarif@74c1aea9df7c0f02e9b7bfe4a8935abf2e5e3aa6 # v3.39.5
               if: always()
               with:
                   sarif_file: .osdo/results/container/trivy.sarif
@@ -136,7 +156,7 @@ jobs:
               continue-on-error: true
 
             - name: Upload Scan Artifacts
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
               if: always()
               with:
                   name: container-scan-results
@@ -165,7 +185,7 @@ jobs:
                   # 🐳 Container Security Report
 
                   ## Image Details
-                  - **Image:** \`${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}\`
+                  - **Image:** \`${{ inputs.registry }}/${{ inputs.image-name }}@${{ inputs.image-digest }}\`
                   - **Security Score:** ${{ steps.calculate-score.outputs.score }}/100
 
                   ## Vulnerability Summary
@@ -195,15 +215,34 @@ jobs:
             signed: ${{ steps.sign.outputs.signed }}
         steps:
             - name: Install Cosign
-              uses: sigstore/cosign-installer@v3
+              uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
 
-            - name: Sign Container Image
+            # Signs the digest only. osdo-actions osdo-sign v2.0.0 is a stub that signs nothing,
+            # so keyless cosign is called directly (OIDC via id-token: write above).
+            - name: Sign Container Image by Digest
               id: sign
-              uses: opensecdevops/osdo-actions/actions/osdo-sign@osdo-sign/v1.0.0
-              with:
-                  artifact-name: ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}
-                  artifact-type: container
-
-            - name: Verify Signature
+              env:
+                  IMAGE_REPO: ${{ inputs.registry }}/${{ inputs.image-name }}
+                  IMAGE_DIGEST: ${{ needs.container-scan.outputs.image-digest }}
               run: |
-                  cosign verify ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.image-tag }}
+                  if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                      echo "::error::image digest missing or invalid from the scan job; refusing to sign"
+                      exit 1
+                  fi
+                  cosign sign --yes "${IMAGE_REPO}@${IMAGE_DIGEST}"
+                  echo "signed=true" >> "$GITHUB_OUTPUT"
+
+            # Keyless identity is the reusable workflow ref; verify it explicitly against the digest.
+            - name: Verify Signature by Digest
+              env:
+                  IMAGE_REPO: ${{ inputs.registry }}/${{ inputs.image-name }}
+                  IMAGE_DIGEST: ${{ needs.container-scan.outputs.image-digest }}
+              run: |
+                  if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+                      echo "::error::image digest missing or invalid; refusing to verify"
+                      exit 1
+                  fi
+                  cosign verify \
+                      --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+                      --certificate-identity-regexp '^https://github\.com/opensecdevops/osdo-workflows/\.github/workflows/osdo-container-security\.yml@' \
+                      "${IMAGE_REPO}@${IMAGE_DIGEST}"
